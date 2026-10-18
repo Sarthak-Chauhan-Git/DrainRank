@@ -35,6 +35,7 @@ import {
 import { divIcon } from "leaflet";
 import {
   AlertTriangle,
+  Award,
   Bell,
   Building2,
   CheckCheck,
@@ -59,8 +60,10 @@ import {
   UsersRound,
   Wrench,
 } from "lucide-react";
+import { createSeedData } from "./data";
+import { localDataProvider } from "./dataProvider";
 
-type DrainStatus =
+export type DrainStatus =
   | "Cleaning Recommended"
   | "Inspection Required"
   | "Monitoring"
@@ -78,7 +81,7 @@ type OutcomeType =
 
 type ActivitySeverity = "info" | "warning" | "success" | "danger";
 
-interface DrainRecord {
+export interface DrainRecord {
   id: string;
   evidenceId?: string;
   location: string;
@@ -94,13 +97,16 @@ interface DrainRecord {
   evidenceStatus: string;
   lastObservation: string;
   assignedCrew?: string;
+  assignedCrews?: string[];
   workStatus?: string;
   issueType: string;
   mapPosition: [number, number];
   lastUpdated: string;
+  deadlineAt?: string;
+  assignedShift?: string;
 }
 
-interface ReportRecord {
+export interface ReportRecord {
   id: string;
   drainId: string;
   reporterName: string;
@@ -116,7 +122,7 @@ interface ReportRecord {
   status: "Open" | "Duplicate" | "Resolved";
 }
 
-interface ActivityEntry {
+export interface ActivityEntry {
   id: string;
   title: string;
   detail: string;
@@ -128,7 +134,7 @@ interface ActivityEntry {
   evidenceId?: string;
 }
 
-interface OutcomeRecord {
+export interface OutcomeRecord {
   id: string;
   drainId: string;
   beforeCondition: string;
@@ -139,11 +145,122 @@ interface OutcomeRecord {
   timestamp: string;
 }
 
-interface AppState {
+type CreditPoolStatus =
+  | "Pending verification"
+  | "Released"
+  | "Held"
+  | "Reversed";
+
+export interface CreditPolicy {
+  baseCleaning: number;
+  baseInspection: number;
+  complexityMultiplier: number;
+  scopeMultiplier: number;
+  evidenceMultiplier: number;
+  roleWeights: Record<string, number>;
+  wardAllowances: Record<string, WardAllowance>;
+}
+
+export interface WardAllowance {
+  successfulCleaning: number;
+  successfulInspection: number;
+  incompleteWorkPenalty: number;
+  rejectedEvidencePenalty: number;
+  delayedWorkPenalty: number;
+}
+
+export interface CrewWorker {
+  id: string;
+  name: string;
+  currentCrew: string;
+  role: string;
+  ward?: string;
+  status?: "Active" | "On leave" | "Available";
+  joinedAt?: string;
+  officialEmail?: string;
+  phoneNumber?: string;
+  address?: string;
+  loginStatus?: "Credentials pending" | "Credentials issued";
+}
+
+export interface CrewRecord {
+  id: string;
+  name: string;
+  ward: string;
+  memberIds: string[];
+  createdAt: string;
+}
+
+interface CrewOption {
+  name: string;
+  members: string[];
+}
+
+function getTodayInputDate() {
+  const today = new Date();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${today.getFullYear()}-${month}-${day}`;
+}
+
+export interface CreditPool {
+  id: string;
+  workOrderId: string;
+  drainId: string;
+  taskType: "Cleaning" | "Inspection";
+  complexity: string;
+  completedScope: number;
+  evidenceQuality: number;
+  proposedCredits: number;
+  status: CreditPoolStatus;
+  createdAt: string;
+  releasedAt?: string;
+  deadlineAt?: string;
+  completedAt?: string;
+  onTime?: boolean;
+  reviewer?: string;
+  reason: string;
+}
+
+export interface CreditAllocation {
+  id: string;
+  poolId: string;
+  workOrderId: string;
+  workerId: string;
+  workerName: string;
+  historicalCrew: string;
+  role: string;
+  weight: number;
+  credits: number;
+  timestamp: string;
+}
+
+export interface CreditAudit {
+  id: string;
+  action:
+    | "Pool created"
+    | "Credits released"
+    | "Approval ignored"
+    | "Adjustment";
+  poolId: string;
+  workOrderId: string;
+  workerId?: string;
+  reviewer: string;
+  timestamp: string;
+  reason: string;
+}
+
+export interface AppState {
   drains: DrainRecord[];
   reports: ReportRecord[];
   activities: ActivityEntry[];
   outcomes: OutcomeRecord[];
+  creditPolicy: CreditPolicy;
+  workers: CrewWorker[];
+  crews: CrewRecord[];
+  creditPools: CreditPool[];
+  creditAllocations: CreditAllocation[];
+  creditAudits: CreditAudit[];
 }
 
 interface ReportForm {
@@ -164,7 +281,6 @@ interface InspectionForm {
   photo?: string;
 }
 
-const STORAGE_KEY = "drainrank-v1";
 const navItems = [
   { label: "Overview", path: "/overview", icon: Gauge },
   { label: "Drain Map", path: "/map", icon: MapPinned },
@@ -173,6 +289,8 @@ const navItems = [
   { label: "Evidence Review", path: "/evidence", icon: ShieldCheck },
   { label: "Outcome Intelligence", path: "/outcomes", icon: Bell },
   { label: "Reports", path: "/reports", icon: Download },
+  { label: "Crew Management", path: "/crew-management", icon: Award },
+  { label: "Logs", path: "/logs", icon: ClipboardList },
   { label: "Administration", path: "/administration", icon: UsersRound },
 ];
 
@@ -184,712 +302,6 @@ const formatDate = (value: string) =>
     dateStyle: "medium",
     timeStyle: "short",
   });
-
-const createSeedData = (): AppState => {
-  const now = new Date();
-  const iso = (daysAgo: number, hoursAgo = 0) =>
-    new Date(
-      now.getTime() - (daysAgo * 24 + hoursAgo) * 60 * 60 * 1000,
-    ).toISOString();
-
-  const drains: DrainRecord[] = [
-    {
-      id: "DR-A",
-      location: "Ward 12, Hospital Road",
-      ward: "Ward 12",
-      reason: "Partial blockage near critical hospital access",
-      status: "Cleaning Recommended",
-      priority: 80,
-      consequence: 1,
-      catchment: 1,
-      visibleBlockage: 50,
-      condition: "Partially blocked",
-      evidenceStatus: "Photo review complete",
-      lastObservation: iso(1, 2),
-      workStatus: "Ready for assignment",
-      issueType: "Partial Blockage",
-      mapPosition: [28.6469, 77.4316],
-      lastUpdated: iso(1, 2),
-    },
-    {
-      id: "DR-B",
-      location: "Ward 12, Shanti Nagar",
-      ward: "Ward 12",
-      reason: "Severe visible blockage in a residential area",
-      status: "Pending Review",
-      priority: 76.25,
-      consequence: 0.4,
-      catchment: 0.75,
-      visibleBlockage: 100,
-      condition: "Severe blockage",
-      evidenceStatus: "After photo submitted",
-      lastObservation: iso(0, 4),
-      assignedCrew: "Crew Alpha",
-      workStatus: "Completion claim submitted",
-      issueType: "Blocked Drain",
-      mapPosition: [28.6412, 77.428],
-      lastUpdated: iso(0, 4),
-    },
-    {
-      id: "DR-C",
-      location: "Ward 12, Central Underpass",
-      ward: "Ward 12",
-      reason:
-        "Potentially high-consequence waterlogging location with insufficient current evidence",
-      status: "Inspection Required",
-      priority: 81,
-      consequence: 0.8,
-      catchment: 0.6,
-      evidenceUncertainty: 1,
-      condition: "Evidence uncertain",
-      evidenceStatus: "Awaiting field inspection",
-      lastObservation: iso(2, 5),
-      workStatus: "Inspection queued",
-      issueType: "Waterlogging",
-      mapPosition: [28.6462, 77.4362],
-      lastUpdated: iso(2, 5),
-    },
-    {
-      id: "DR-D",
-      location: "Ward 12, Green Lane",
-      ward: "Ward 12",
-      reason: "Visible blockage but lower documented consequence",
-      status: "Cleaning Recommended",
-      priority: 63.6,
-      consequence: 0.3,
-      catchment: 0.46,
-      visibleBlockage: 100,
-      condition: "Visible blockage",
-      evidenceStatus: "Usable evidence available",
-      lastObservation: iso(1, 9),
-      workStatus: "Scheduled",
-      issueType: "Blocked Drain",
-      mapPosition: [28.6388, 77.4269],
-      lastUpdated: iso(1, 9),
-    },
-    {
-      id: "DR-E",
-      location: "Ward 12, Park Lane",
-      ward: "Ward 12",
-      reason:
-        "Latest observation does not show visible blockage; future problems remain possible",
-      status: "Monitoring",
-      priority: 18,
-      consequence: 0.2,
-      catchment: 0.42,
-      condition: "Visually clear",
-      evidenceStatus: "Recent usable image - clear",
-      lastObservation: iso(0, 1),
-      workStatus: "Monitoring",
-      issueType: "Uncertain Condition",
-      mapPosition: [28.6405, 77.422],
-      lastUpdated: iso(0, 1),
-    },
-  ];
-
-  drains.push(
-    {
-      id: "DR-F",
-      location: "Ward 7, Nehru Market",
-      ward: "Ward 7",
-      reason: "Assigned cleaning for recurring market debris.",
-      status: "Assigned",
-      priority: 88,
-      consequence: 0.85,
-      catchment: 0.9,
-      visibleBlockage: 92,
-      condition: "Blocked",
-      evidenceStatus: "Before and after evidence pending",
-      lastObservation: iso(0, 6),
-      assignedCrew: "Crew Bravo",
-      workStatus: "In progress",
-      issueType: "Blocked Drain",
-      mapPosition: [28.6124, 77.2865],
-      lastUpdated: iso(0, 6),
-    },
-    {
-      id: "DR-G",
-      location: "Ward 7, Railway Colony",
-      ward: "Ward 7",
-      reason: "Cleaning returned for poor-quality evidence.",
-      status: "Rework Required",
-      priority: 78,
-      consequence: 0.7,
-      catchment: 0.72,
-      visibleBlockage: 84,
-      condition: "Heavy silt",
-      evidenceStatus: "Rework requested - image quality insufficient",
-      lastObservation: iso(1, 4),
-      assignedCrew: "Crew Bravo",
-      workStatus: "Rework required",
-      issueType: "Silt Accumulation",
-      mapPosition: [28.6182, 77.2941],
-      lastUpdated: iso(1, 4),
-    },
-    {
-      id: "DR-H",
-      location: "Ward 19, Yamuna Edge",
-      ward: "Ward 19",
-      reason: "Accepted cleaning evidence; monitor after rainfall.",
-      status: "Reviewed",
-      priority: 69,
-      consequence: 0.8,
-      catchment: 0.65,
-      visibleBlockage: 76,
-      condition: "Clear after cleaning",
-      evidenceStatus: "Accepted by reviewer",
-      lastObservation: iso(3, 2),
-      assignedCrew: "Crew Charlie",
-      workStatus: "Completed - evidence accepted",
-      issueType: "Waterlogging",
-      mapPosition: [28.6765, 77.2584],
-      lastUpdated: iso(3, 2),
-    },
-    {
-      id: "DR-I",
-      location: "Ward 19, Seelampur Crossing",
-      ward: "Ward 19",
-      reason: "Repeated waterlogging after rainfall requires follow-up.",
-      status: "Monitoring",
-      priority: 54,
-      consequence: 0.72,
-      catchment: 0.83,
-      condition: "No visible blockage; waterlogging recurring",
-      evidenceStatus: "Outcome observation recorded",
-      lastObservation: iso(2, 1),
-      workStatus: "Monitoring and follow-up",
-      issueType: "Waterlogging",
-      mapPosition: [28.6697, 77.2718],
-      lastUpdated: iso(2, 1),
-    },
-    {
-      id: "DR-J",
-      location: "Ward 4, Civil Lines",
-      ward: "Ward 4",
-      reason: "New report awaiting field verification.",
-      status: "Inspection Required",
-      priority: 73,
-      consequence: 0.6,
-      catchment: 0.55,
-      evidenceUncertainty: 1,
-      condition: "Unknown",
-      evidenceStatus: "No field evidence yet",
-      lastObservation: iso(5, 3),
-      workStatus: "Inspection queued",
-      issueType: "Overflow",
-      mapPosition: [28.6812, 77.2256],
-      lastUpdated: iso(5, 3),
-    },
-    {
-      id: "DR-K",
-      location: "Ward 4, Model Town",
-      ward: "Ward 4",
-      reason: "Low-severity section with no recent active complaint.",
-      status: "Monitoring",
-      priority: 34,
-      consequence: 0.25,
-      catchment: 0.35,
-      condition: "Visually clear",
-      evidenceStatus: "Recent observation available",
-      lastObservation: iso(6, 1),
-      workStatus: "Routine monitoring",
-      issueType: "Uncertain Condition",
-      mapPosition: [28.7041, 77.1927],
-      lastUpdated: iso(6, 1),
-    },
-    {
-      id: "DR-L",
-      location: "Ward 22, Lajpat Nagar",
-      ward: "Ward 22",
-      reason: "Critical blocked inlet near school access.",
-      status: "Cleaning Recommended",
-      priority: 94,
-      consequence: 0.95,
-      catchment: 0.91,
-      visibleBlockage: 100,
-      condition: "Severe blockage",
-      evidenceStatus: "Verified report evidence",
-      lastObservation: iso(0, 9),
-      workStatus: "Ready for assignment",
-      issueType: "Blocked Drain",
-      mapPosition: [28.5678, 77.2436],
-      lastUpdated: iso(0, 9),
-    },
-    {
-      id: "DR-M",
-      location: "Ward 22, Amar Colony",
-      ward: "Ward 22",
-      reason: "Duplicate reports merged into one shared incident.",
-      status: "Pending Review",
-      priority: 67,
-      consequence: 0.5,
-      catchment: 0.6,
-      visibleBlockage: 62,
-      condition: "Partial blockage",
-      evidenceStatus: "Awaiting evidence review",
-      lastObservation: iso(1, 8),
-      workStatus: "Completion claim submitted",
-      issueType: "Partial Blockage",
-      mapPosition: [28.5606, 77.2519],
-      lastUpdated: iso(1, 8),
-    },
-    {
-      id: "DR-N",
-      location: "Ward 15, Okhla Phase I",
-      ward: "Ward 15",
-      reason: "Completed section with resolved post-rain outcome.",
-      status: "Reviewed",
-      priority: 61,
-      consequence: 0.52,
-      catchment: 0.5,
-      visibleBlockage: 70,
-      condition: "Clear after cleaning",
-      evidenceStatus: "Accepted and archived",
-      lastObservation: iso(8, 2),
-      assignedCrew: "Crew Alpha",
-      workStatus: "Completed - batch resolved",
-      issueType: "Silt Accumulation",
-      mapPosition: [28.5364, 77.2811],
-      lastUpdated: iso(8, 2),
-    },
-    {
-      id: "DR-O",
-      location: "Ward 15, Jasola Vihar",
-      ward: "Ward 15",
-      reason:
-        "Inspection found no visible blockage; retain for seasonal monitoring.",
-      status: "Monitoring",
-      priority: 42,
-      consequence: 0.45,
-      catchment: 0.48,
-      condition: "Visually clear",
-      evidenceStatus: "Inspection accepted",
-      lastObservation: iso(4, 4),
-      workStatus: "Monitoring after inspection",
-      issueType: "Waterlogging",
-      mapPosition: [28.5455, 77.3035],
-      lastUpdated: iso(4, 4),
-    },
-  );
-
-  const reports: ReportRecord[] = [
-    {
-      id: "RPT-1001",
-      drainId: "DR-A",
-      reporterName: "Citizen relay team",
-      issueType: "Partial Blockage",
-      ward: "Ward 12",
-      location: "Hospital Road",
-      description: "Blocked inlet by debris near ambulance route.",
-      urgent: true,
-      submittedAt: iso(2, 1),
-      priority: 80,
-      reasons: [
-        "Visible blockage estimate 50%",
-        "Catchment proxy 1.00",
-        "Hospital access consequence factor",
-      ],
-      status: "Open",
-    },
-    {
-      id: "RPT-1002",
-      drainId: "DR-B",
-      reporterName: "Resident",
-      issueType: "Blocked Drain",
-      ward: "Ward 12",
-      location: "Shanti Nagar",
-      description: "Standing water after a brief storm.",
-      urgent: false,
-      submittedAt: iso(4, 7),
-      priority: 76.25,
-      reasons: [
-        "Severe blockage estimate 100%",
-        "Low but relevant residential consequence",
-      ],
-      status: "Open",
-    },
-    ...[
-      [
-        "RPT-1003",
-        "DR-A",
-        "Ward 12",
-        "Hospital Road",
-        "Resident",
-        "Partial Blockage",
-        "Debris returned after rainfall.",
-        79,
-        "Open",
-      ],
-      [
-        "RPT-1004",
-        "DR-F",
-        "Ward 7",
-        "Nehru Market",
-        "Market association",
-        "Blocked Drain",
-        "Market waste is restricting the inlet.",
-        88,
-        "Open",
-      ],
-      [
-        "RPT-1005",
-        "DR-F",
-        "Ward 7",
-        "Nehru Market",
-        "Resident",
-        "Waterlogging",
-        "Standing water reported at the market entrance.",
-        82,
-        "Open",
-      ],
-      [
-        "RPT-1006",
-        "DR-G",
-        "Ward 7",
-        "Railway Colony",
-        "Resident",
-        "Silt Accumulation",
-        "Cleaning appears incomplete in the submitted image.",
-        78,
-        "Open",
-      ],
-      [
-        "RPT-1007",
-        "DR-H",
-        "Ward 19",
-        "Yamuna Edge",
-        "Field officer",
-        "Blocked Drain",
-        "Original blockage cleared and evidence accepted.",
-        69,
-        "Resolved",
-      ],
-      [
-        "RPT-1008",
-        "DR-I",
-        "Ward 19",
-        "Seelampur Crossing",
-        "Resident",
-        "Waterlogging",
-        "Waterlogging returned during the last rain.",
-        54,
-        "Open",
-      ],
-      [
-        "RPT-1009",
-        "DR-I",
-        "Ward 19",
-        "Seelampur Crossing",
-        "Resident",
-        "Waterlogging",
-        "Same recurring incident as RPT-1008.",
-        51,
-        "Duplicate",
-      ],
-      [
-        "RPT-1010",
-        "DR-J",
-        "Ward 4",
-        "Civil Lines",
-        "Resident",
-        "Overflow",
-        "Overflow reported near the crossing.",
-        73,
-        "Open",
-      ],
-      [
-        "RPT-1011",
-        "DR-K",
-        "Ward 4",
-        "Model Town",
-        "Field officer",
-        "Uncertain Condition",
-        "No active issue found during routine check.",
-        34,
-        "Resolved",
-      ],
-      [
-        "RPT-1012",
-        "DR-L",
-        "Ward 22",
-        "Lajpat Nagar",
-        "School administrator",
-        "Blocked Drain",
-        "Blocked inlet affects school access.",
-        94,
-        "Open",
-      ],
-      [
-        "RPT-1013",
-        "DR-M",
-        "Ward 22",
-        "Amar Colony",
-        "Resident",
-        "Partial Blockage",
-        "Standing water by the residential lane.",
-        67,
-        "Open",
-      ],
-      [
-        "RPT-1014",
-        "DR-M",
-        "Ward 22",
-        "Amar Colony",
-        "Resident",
-        "Partial Blockage",
-        "Duplicate of the shared Amar Colony incident.",
-        65,
-        "Duplicate",
-      ],
-      [
-        "RPT-1015",
-        "DR-N",
-        "Ward 15",
-        "Okhla Phase I",
-        "Field officer",
-        "Silt Accumulation",
-        "Section cleared through batch maintenance.",
-        61,
-        "Resolved",
-      ],
-      [
-        "RPT-1016",
-        "DR-O",
-        "Ward 15",
-        "Jasola Vihar",
-        "Resident",
-        "Waterlogging",
-        "No visible blockage; retain seasonal watch.",
-        42,
-        "Resolved",
-      ],
-    ].map(
-      (
-        [
-          id,
-          drainId,
-          ward,
-          location,
-          reporterName,
-          issueType,
-          description,
-          priority,
-          status,
-        ],
-        index,
-      ) => ({
-        id: String(id),
-        drainId: String(drainId),
-        reporterName: String(reporterName),
-        issueType: String(issueType),
-        ward: String(ward),
-        location: String(location),
-        description: String(description),
-        urgent: Number(priority) >= 80,
-        submittedAt: iso(index + 1, index % 8),
-        priority: Number(priority),
-        reasons: [
-          status === "Duplicate"
-            ? "Duplicate merged into the shared incident."
-            : status === "Resolved"
-              ? "Resolved through accepted section-level maintenance."
-              : "Reason not recorded",
-        ],
-        status: status as ReportRecord["status"],
-      }),
-    ),
-  ];
-
-  const activities: ActivityEntry[] = [
-    {
-      id: "ACT-001",
-      title: "DR-B evidence review opened",
-      detail: "After-photo flagged for a location mismatch review.",
-      timestamp: iso(0, 2),
-      severity: "warning",
-      category: "Evidence",
-      reason: "Data Correction",
-      user: "A. Mehta",
-    },
-    {
-      id: "ACT-002",
-      title: "Crew assignment logged",
-      detail: "Crew Alpha assigned to DR-A cleaning task.",
-      timestamp: iso(1, 1),
-      severity: "success",
-      category: "Cleaning",
-      reason: "New Report",
-      user: "R. Singh",
-    },
-    {
-      id: "ACT-003",
-      title: "Report triaged",
-      detail: "New citizen report generated a provisional priority score.",
-      timestamp: iso(2, 3),
-      severity: "info",
-      category: "Incidents",
-      reason: "Reason not recorded",
-      user: "System",
-    },
-  ];
-
-  const outcomes: OutcomeRecord[] = [
-    {
-      id: "OUT-001",
-      drainId: "DR-A",
-      beforeCondition:
-        "Blocked around the inlet; water collected at the hospital entry edge.",
-      afterCondition: "Visually clear after cleaning; flow returned to normal.",
-      postRainObservation: "Waterlogging reduced after the last rain event.",
-      outcome: "Resolved",
-      recommendation: "Continue routine spot checks during monsoon periods.",
-      timestamp: iso(0, 8),
-    },
-    {
-      id: "OUT-002",
-      drainId: "DR-C",
-      beforeCondition:
-        "Evidence incomplete; underpass waterlogging remained uncertain.",
-      afterCondition:
-        "Flooding persisted after rainfall despite limited visible blockage evidence.",
-      postRainObservation:
-        "Waterlogging persists after rainfall; root cause requires further investigation.",
-      outcome: "Persisted",
-      recommendation:
-        "Investigate downstream capacity, runoff, slope, or connected drainage infrastructure.",
-      timestamp: iso(1, 5),
-    },
-    {
-      id: "OUT-003",
-      drainId: "DR-H",
-      beforeCondition: "Blocked section beside the Yamuna edge.",
-      afterCondition:
-        "Flow restored after crew cleaning and accepted evidence.",
-      postRainObservation:
-        "No waterlogging observed in the next rainfall check.",
-      outcome: "Resolved",
-      recommendation: "Schedule monthly inspection during the monsoon.",
-      timestamp: iso(2, 6),
-    },
-    {
-      id: "OUT-004",
-      drainId: "DR-I",
-      beforeCondition: "No visible blockage at the inspection point.",
-      afterCondition:
-        "Surface remained clear but waterlogging recurred after rainfall.",
-      postRainObservation:
-        "Persistent waterlogging; investigate downstream capacity.",
-      outcome: "Persisted",
-      recommendation: "Create follow-up inspection for the connected network.",
-      timestamp: iso(1, 2),
-    },
-    {
-      id: "OUT-005",
-      drainId: "DR-N",
-      beforeCondition: "Silt accumulation across the covered section.",
-      afterCondition:
-        "Section cleared and evidence accepted in a batch review.",
-      postRainObservation: "No recurring issue observed.",
-      outcome: "Resolved",
-      recommendation: "Retain the section in routine monitoring.",
-      timestamp: iso(7, 4),
-    },
-    {
-      id: "OUT-006",
-      drainId: "DR-C",
-      beforeCondition: "Evidence incomplete at the underpass.",
-      afterCondition: "Condition not observed during the scheduled visit.",
-      postRainObservation:
-        "Follow-up could not confirm the source of waterlogging.",
-      outcome: "Not Observed",
-      recommendation: "Collect better evidence during the next rainfall event.",
-      timestamp: iso(4, 5),
-    },
-  ];
-
-  activities.push(
-    {
-      id: "ACT-004",
-      title: "Section-level batch resolved",
-      detail: "DR-N maintenance closed two eligible reports together.",
-      timestamp: iso(2, 7),
-      severity: "success",
-      category: "Resolution batch",
-      reason: "Resolved",
-      user: "S. Chauhan",
-    },
-    {
-      id: "ACT-005",
-      title: "Duplicate report merged",
-      detail: "RPT-1009 linked to the Seelampur shared incident.",
-      timestamp: iso(1, 6),
-      severity: "info",
-      category: "Incidents",
-      reason: "Duplicate Merged",
-      user: "A. Mehta",
-    },
-    {
-      id: "ACT-006",
-      title: "Cleaning evidence returned",
-      detail: "DR-G requires a clearer after image and location confirmation.",
-      timestamp: iso(1, 4),
-      severity: "warning",
-      category: "Evidence",
-      reason: "Data Correction",
-      user: "R. Singh",
-    },
-    {
-      id: "ACT-007",
-      title: "Recurring waterlogging recorded",
-      detail: "DR-I follow-up opened after rainfall observation.",
-      timestamp: iso(2, 1),
-      severity: "danger",
-      category: "Outcomes",
-      reason: "New Report",
-      user: "System",
-    },
-    {
-      id: "ACT-008",
-      title: "Priority reclassified",
-      detail: "DR-L moved to Critical after school-access consequence review.",
-      timestamp: iso(3, 8),
-      severity: "warning",
-      category: "Priority",
-      reason: "Reclassified",
-      user: "S. Chauhan",
-    },
-    {
-      id: "ACT-009",
-      title: "Report status corrected",
-      detail: "RPT-1011 marked resolved after a clear inspection.",
-      timestamp: iso(5, 2),
-      severity: "success",
-      category: "Reports",
-      reason: "Data Correction",
-      user: "A. Mehta",
-    },
-    {
-      id: "ACT-010",
-      title: "Count change recorded",
-      detail: "A category count changed without a recorded transition reason.",
-      timestamp: iso(6, 3),
-      severity: "info",
-      category: "Analytics",
-      reason: "Reason not recorded",
-      user: "System",
-    },
-  );
-
-  return {
-    drains: drains.map((drain) => ({
-      ...drain,
-      evidenceId: `EVD-${drain.id}`,
-    })),
-    reports,
-    activities,
-    outcomes,
-  };
-};
 
 const getStatusColor = (status: DrainStatus) => {
   switch (status) {
@@ -1057,7 +469,8 @@ function EvidenceIndexSidebar({ drains }: { drains: DrainRecord[] }) {
   const navigate = useNavigate();
   const reviewableDrains = drains.filter(
     (drain) =>
-      (drain.status === "Pending Review" || drain.status === "Rework Required") &&
+      (drain.status === "Pending Review" ||
+        drain.status === "Rework Required") &&
       !drain.workStatus?.startsWith("Returned to field app"),
   );
 
@@ -1087,7 +500,9 @@ function EvidenceIndexSidebar({ drains }: { drains: DrainRecord[] }) {
               {drain.evidenceId ?? `EVD-${drain.id}`}
             </span>
             <span className="evidence-index-location">{drain.location}</span>
-            <span className={`evidence-index-status ${getStatusColor(drain.status)}`}>
+            <span
+              className={`evidence-index-status ${getStatusColor(drain.status)}`}
+            >
               {drain.status}
             </span>
           </button>
@@ -1109,31 +524,9 @@ function DrainRankApp() {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [appState, setAppState] = useState<AppState>(() => {
-    const savedValue = window.localStorage.getItem(STORAGE_KEY);
-    if (savedValue) {
-      try {
-        const parsed = JSON.parse(savedValue) as Partial<AppState>;
-        if (
-          Array.isArray(parsed.drains) &&
-          Array.isArray(parsed.reports) &&
-          Array.isArray(parsed.activities) &&
-          Array.isArray(parsed.outcomes)
-        ) {
-          return {
-            ...(parsed as AppState),
-            drains: (parsed.drains as DrainRecord[]).map((drain) => ({
-              ...drain,
-              evidenceId: drain.evidenceId || `EVD-${drain.id}`,
-            })),
-          };
-        }
-      } catch {
-        window.localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-    return createSeedData();
-  });
+  const [appState, setAppState] = useState<AppState>(() =>
+    localDataProvider.load(),
+  );
   const [toast, setToast] = useState<string | null>(null);
   const [submittedReportId, setSubmittedReportId] = useState<string | null>(
     null,
@@ -1141,7 +534,7 @@ function DrainRankApp() {
   void submittedReportId;
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+    localDataProvider.save(appState);
   }, [appState]);
 
   useEffect(() => {
@@ -1295,20 +688,27 @@ function DrainRankApp() {
     drainId: string,
     crew: string,
     completionTime: string,
+    shift: string,
     note: string,
   ) => {
     updateDrainById(drainId, (drain) => ({
       ...drain,
       status: "Pending Review",
       assignedCrew: crew,
+      assignedCrews: crew
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
       evidenceStatus: "Temporary evidence awaiting review",
       workStatus: `Cleaning assigned · evidence pending`,
       reason: note || drain.reason,
+      deadlineAt: completionTime,
+      assignedShift: shift,
       lastUpdated: new Date().toISOString(),
     }));
     addActivity(
       "Crew assignment recorded",
-      `EVD-${drainId} · ${crew} assigned to clean ${drainId} for ${completionTime}; temporary evidence review created.`,
+      `EVD-${drainId} · ${crew} assigned to clean ${drainId} for ${completionTime} (${shift}); temporary evidence review created.`,
       "success",
     );
     setToast(`${crew} assigned to ${drainId}.`);
@@ -1318,18 +718,25 @@ function DrainRankApp() {
     drainId: string,
     crew: string,
     completionTime: string,
+    shift: string,
     note: string,
   ) => {
     updateDrainById(drainId, (drain) => ({
       ...drain,
       assignedCrew: crew,
+      assignedCrews: crew
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
       workStatus: `Inspection assigned · ${completionTime}`,
       reason: note || drain.reason,
+      deadlineAt: completionTime,
+      assignedShift: shift,
       lastUpdated: new Date().toISOString(),
     }));
     addActivity(
       "Inspection crew assigned",
-      `EVD-${drainId} · ${crew} assigned to inspect ${drainId} for ${completionTime}.`,
+      `EVD-${drainId} · ${crew} assigned to inspect ${drainId} for ${completionTime} (${shift}).`,
       "success",
     );
     setToast(`${crew} assigned to inspect ${drainId}.`);
@@ -1340,6 +747,170 @@ function DrainRankApp() {
     action: "Accept" | "Request Rework" | "Flag Location Mismatch",
     details: string,
   ) => {
+    const sourceDrain = appState.drains.find((drain) => drain.id === drainId);
+    const now = new Date().toISOString();
+    if (sourceDrain && action === "Accept") {
+      setAppState((previous) => {
+        const existingPool = previous.creditPools.find(
+          (pool) => pool.workOrderId === `WO-${drainId}`,
+        );
+        if (existingPool?.status === "Released") {
+          return {
+            ...previous,
+            creditAudits: [
+              {
+                id: createId("AUD"),
+                action: "Approval ignored",
+                poolId: existingPool.id,
+                workOrderId: existingPool.workOrderId,
+                reviewer: "Current reviewer",
+                timestamp: now,
+                reason:
+                  "Repeated approval did not duplicate a released credit pool.",
+              },
+              ...previous.creditAudits,
+            ],
+          };
+        }
+        const taskType =
+          getWorkOrderTeam(sourceDrain) === "Inspection team"
+            ? "Inspection"
+            : "Cleaning";
+        const complexity = sourceDrain.priority >= 80 ? "High" : "Standard";
+        const proposedCredits = Math.round(
+          (taskType === "Cleaning"
+            ? previous.creditPolicy.baseCleaning
+            : previous.creditPolicy.baseInspection) *
+            (complexity === "High"
+              ? 1.3
+              : previous.creditPolicy.complexityMultiplier) *
+            previous.creditPolicy.scopeMultiplier *
+            previous.creditPolicy.evidenceMultiplier,
+        );
+        const pool: CreditPool = existingPool ?? {
+          id: `POOL-${drainId}`,
+          workOrderId: `WO-${drainId}`,
+          drainId,
+          taskType,
+          complexity,
+          completedScope: 1,
+          evidenceQuality: 1,
+          proposedCredits,
+          status: "Pending verification",
+          createdAt: now,
+          deadlineAt:
+            sourceDrain.deadlineAt ??
+            new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+          completedAt: now,
+          onTime: !sourceDrain.deadlineAt || now <= sourceDrain.deadlineAt,
+          reason: "Credit pool created from completion evidence.",
+        };
+        const roster = previous.workers.filter(
+          (worker) =>
+            sourceDrain.assignedCrew
+              ?.split(",")
+              .map((crew) => crew.trim())
+              .includes(worker.currentCrew) ?? false,
+        );
+        const members = roster.length
+          ? roster
+          : previous.workers.filter(
+              (worker) => worker.currentCrew === "Crew Alpha",
+            );
+        const totalWeight = members.reduce(
+          (sum, worker) =>
+            sum + (previous.creditPolicy.roleWeights[worker.role] ?? 1),
+          0,
+        );
+        const allocations: CreditAllocation[] = members.map((worker) => {
+          const weight = previous.creditPolicy.roleWeights[worker.role] ?? 1;
+          return {
+            id: `ALLOC-${pool.id}-${worker.id}`,
+            poolId: pool.id,
+            workOrderId: pool.workOrderId,
+            workerId: worker.id,
+            workerName: worker.name,
+            historicalCrew: sourceDrain.assignedCrew ?? worker.currentCrew,
+            role: worker.role,
+            weight,
+            credits: Number(
+              ((proposedCredits * weight) / totalWeight).toFixed(2),
+            ),
+            timestamp: now,
+          };
+        });
+        const delayed =
+          Boolean(pool.deadlineAt) && now > String(pool.deadlineAt);
+        const leader = members.find((worker) =>
+          worker.role.toLowerCase().includes("leader"),
+        );
+        const delayedPenalty =
+          previous.creditPolicy.wardAllowances[sourceDrain.ward]
+            ?.delayedWorkPenalty ?? 0;
+        const leaderPenaltyAllocation =
+          delayed && leader && delayedPenalty > 0
+            ? [
+                {
+                  id: `PENALTY-${pool.id}-${leader.id}`,
+                  poolId: pool.id,
+                  workOrderId: pool.workOrderId,
+                  workerId: leader.id,
+                  workerName: leader.name,
+                  historicalCrew: sourceDrain.assignedCrew ?? leader.currentCrew,
+                  role: leader.role,
+                  weight: 0,
+                  credits: -Math.abs(delayedPenalty),
+                  timestamp: now,
+                },
+              ]
+            : [];
+        return {
+          ...previous,
+          creditPools: [
+            {
+              ...pool,
+              status: "Released",
+              releasedAt: now,
+              reviewer: "Current reviewer",
+              reason: details,
+            },
+            ...previous.creditPools.filter((item) => item.id !== pool.id),
+          ],
+          creditAllocations: [
+            ...allocations,
+            ...leaderPenaltyAllocation,
+            ...previous.creditAllocations.filter(
+              (item) => item.poolId !== pool.id,
+            ),
+          ],
+          creditAudits: [
+            {
+              id: createId("AUD"),
+              action: "Credits released",
+              poolId: pool.id,
+              workOrderId: pool.workOrderId,
+              reviewer: "Current reviewer",
+              timestamp: now,
+              reason: details,
+            },
+            ...(leaderPenaltyAllocation.length
+              ? [
+                  {
+                    id: createId("AUD"),
+                    action: "Adjustment" as const,
+                    poolId: pool.id,
+                    workOrderId: pool.workOrderId,
+                    reviewer: "Current reviewer",
+                    timestamp: now,
+                    reason: `Delayed deadline penalty applied only to crew leader ${leaderPenaltyAllocation[0].workerName}.`,
+                  },
+                ]
+              : []),
+            ...previous.creditAudits,
+          ],
+        };
+      });
+    }
     updateDrainById(drainId, (drain) => {
       if (action === "Accept") {
         return {
@@ -1351,6 +922,28 @@ function DrainRankApp() {
         };
       }
       if (action === "Request Rework") {
+        setAppState((previous) => ({
+          ...previous,
+          creditPools: previous.creditPools.map((pool) =>
+            pool.drainId === drainId && pool.status !== "Released"
+              ? { ...pool, status: "Held", reason: details }
+              : pool,
+          ),
+          creditAudits: [
+            ...previous.creditAudits,
+            ...previous.creditPools
+              .filter((pool) => pool.drainId === drainId)
+              .map((pool) => ({
+                id: createId("AUD"),
+                action: "Adjustment" as const,
+                poolId: pool.id,
+                workOrderId: pool.workOrderId,
+                reviewer: "Current reviewer",
+                timestamp: now,
+                reason: details,
+              })),
+          ],
+        }));
         return {
           ...drain,
           status: "Cleaning Recommended",
@@ -1419,16 +1012,112 @@ function DrainRankApp() {
     setToast("Outcome observation saved and dashboard updated.");
   };
 
+  const addWorker = (worker: CrewWorker) => {
+    setAppState((previous) => ({
+      ...previous,
+      workers: [...previous.workers, worker],
+      crews: previous.crews.map((crew) =>
+        crew.name === worker.currentCrew
+          ? { ...crew, memberIds: [...crew.memberIds, worker.id] }
+          : crew,
+      ),
+      creditAudits: [
+        {
+          id: createId("AUD"),
+          action: "Adjustment",
+          poolId: "WORKER-REGISTRY",
+          workOrderId: "WORKER-REGISTRY",
+          workerId: worker.id,
+          reviewer: "Current administrator",
+          timestamp: new Date().toISOString(),
+          reason: `${worker.name} registered to ${worker.currentCrew}.`,
+        },
+        ...previous.creditAudits,
+      ],
+    }));
+    setToast(`${worker.name} added to ${worker.currentCrew}.`);
+  };
+
+  const addCrew = (crew: CrewRecord) => {
+    setAppState((previous) => ({
+      ...previous,
+      crews: [...previous.crews, crew],
+      activities: [
+        {
+          id: createId("ACT"),
+          title: "Crew created",
+          detail: `${crew.name} created for ${crew.ward}.`,
+          timestamp: new Date().toISOString(),
+          severity: "success",
+          category: "Crew",
+          user: "Current administrator",
+        },
+        ...previous.activities,
+      ],
+    }));
+    setToast(`${crew.name} created.`);
+  };
+
+  const assignWorkersToCrew = (crewName: string, workerIds: string[]) => {
+    setAppState((previous) => ({
+      ...previous,
+      workers: previous.workers.map((worker) =>
+        workerIds.includes(worker.id)
+          ? { ...worker, currentCrew: crewName }
+          : worker,
+      ),
+      crews: previous.crews.map((crew) => ({
+        ...crew,
+        memberIds: previous.workers
+          .filter((worker) =>
+            workerIds.includes(worker.id)
+              ? crew.name === crewName
+              : worker.currentCrew === crew.name &&
+                !workerIds.includes(worker.id),
+          )
+          .map((worker) => worker.id),
+      })),
+    }));
+    setToast(
+      `Crew assignments updated for ${workerIds.length} worker${workerIds.length === 1 ? "" : "s"}.`,
+    );
+  };
+
+  const updateWorker = (workerId: string, changes: Partial<CrewWorker>) => {
+    setAppState((previous) => ({
+      ...previous,
+      workers: previous.workers.map((worker) =>
+        worker.id === workerId ? { ...worker, ...changes } : worker,
+      ),
+    }));
+  };
+
+  const resetWorkerPassword = (worker: CrewWorker) => {
+    setAppState((previous) => ({
+      ...previous,
+      activities: [{
+        id: createId("ACT"),
+        title: "Password reset link sent",
+        detail: `A password reset link was sent to ${worker.phoneNumber ?? "the registered phone"} for ${worker.id}.`,
+        timestamp: new Date().toISOString(),
+        severity: "warning",
+        category: "Crew",
+        user: "Current administrator",
+      }, ...previous.activities],
+    }));
+    setToast(`Password reset link sent to ${worker.phoneNumber ?? "the registered phone"}.`);
+  };
+
   const resetData = () => {
     const initialData = createSeedData();
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
+    localDataProvider.save(initialData);
     setAppState(initialData);
     setSubmittedReportId(null);
     setToast("Initial synthetic dataset restored.");
   };
 
   const clearLocalData = () => {
-    window.localStorage.removeItem(STORAGE_KEY);
+    localDataProvider.clear();
     setAppState(createSeedData());
     setSubmittedReportId(null);
     setToast("Local data cleared and dashboard data restored.");
@@ -1550,6 +1239,12 @@ function DrainRankApp() {
               <QueueHubPage
                 initialTab="inspection"
                 drains={appState.drains}
+                crewOptions={appState.crews.map((crew) => ({
+                  name: crew.name,
+                  members: crew.memberIds
+                    .map((id) => appState.workers.find((worker) => worker.id === id)?.name)
+                    .filter((name): name is string => Boolean(name)),
+                }))}
                 onInspectionAssign={handleInspectionAssignment}
                 onAssign={handleCrewAssignment}
               />
@@ -1562,6 +1257,12 @@ function DrainRankApp() {
               <QueueHubPage
                 initialTab="cleaning"
                 drains={appState.drains}
+                crewOptions={appState.crews.map((crew) => ({
+                  name: crew.name,
+                  members: crew.memberIds
+                    .map((id) => appState.workers.find((worker) => worker.id === id)?.name)
+                    .filter((name): name is string => Boolean(name)),
+                }))}
                 onInspectionAssign={handleInspectionAssignment}
                 onAssign={handleCrewAssignment}
               />
@@ -1574,6 +1275,12 @@ function DrainRankApp() {
               <QueueHubPage
                 initialTab="inspection"
                 drains={appState.drains}
+                crewOptions={appState.crews.map((crew) => ({
+                  name: crew.name,
+                  members: crew.memberIds
+                    .map((id) => appState.workers.find((worker) => worker.id === id)?.name)
+                    .filter((name): name is string => Boolean(name)),
+                }))}
                 onInspectionAssign={handleInspectionAssignment}
                 onAssign={handleCrewAssignment}
               />
@@ -1633,6 +1340,59 @@ function DrainRankApp() {
                 }}
                 outcomes={appState.outcomes}
                 wardOptions={wardOptions}
+              />
+            }
+          />
+
+          <Route
+            path="/crew-management"
+            element={
+              <CrewManagementPage
+                workers={appState.workers}
+                crews={appState.crews}
+                reports={appState.reports}
+                pools={appState.creditPools}
+                allocations={appState.creditAllocations}
+                policy={appState.creditPolicy}
+                onPolicyChange={(creditPolicy) =>
+                  setAppState((previous) => ({ ...previous, creditPolicy }))
+                }
+                onAddWorker={addWorker}
+                onUpdateWorker={updateWorker}
+                onAssignWorkers={assignWorkersToCrew}
+                onResetPassword={resetWorkerPassword}
+              />
+            }
+          />
+          <Route
+            path="/crew-management/add-worker"
+            element={
+              <AddWorkerPage crews={appState.crews} onSave={addWorker} />
+            }
+          />
+          <Route
+            path="/crew-management/create-crew"
+            element={
+              <CreateCrewPage
+                crews={appState.crews}
+                workers={appState.workers}
+                onSave={addCrew}
+                onAssignWorkers={assignWorkersToCrew}
+              />
+            }
+          />
+          <Route
+            path="/crew-credits"
+            element={<Navigate to="/crew-management" replace />}
+          />
+          <Route
+            path="/logs"
+            element={
+              <LogsPage
+                activities={appState.activities}
+                audits={appState.creditAudits}
+                workers={appState.workers}
+                crews={appState.crews}
               />
             }
           />
@@ -2576,21 +2336,25 @@ function ReportPage({
 function QueueHubPage({
   initialTab,
   drains,
+  crewOptions,
   onInspectionAssign,
   onAssign,
 }: {
   initialTab: "inspection" | "cleaning";
   drains: DrainRecord[];
+  crewOptions: CrewOption[];
   onInspectionAssign: (
     drainId: string,
     crew: string,
     completionTime: string,
+    shift: string,
     note: string,
   ) => void;
   onAssign: (
     drainId: string,
     crew: string,
     completionTime: string,
+    shift: string,
     note: string,
   ) => void;
 }) {
@@ -2637,21 +2401,31 @@ function QueueHubPage({
             <Wrench size={16} /> Cleaning{" "}
             <span>
               {
-                drains.filter(
-                  (drain) =>
-                    drain.status === "Cleaning Recommended" ||
-                    drain.status === "Assigned" ||
-                    drain.status === "Rework Required",
-                ).filter((drain) => !drain.assignedCrew).length
+                drains
+                  .filter(
+                    (drain) =>
+                      drain.status === "Cleaning Recommended" ||
+                      drain.status === "Assigned" ||
+                      drain.status === "Rework Required",
+                  )
+                  .filter((drain) => !drain.assignedCrew).length
               }
             </span>
           </button>
         </div>
       </div>
       {tab === "inspection" ? (
-        <InspectionQueuePage drains={drains} onAssign={onInspectionAssign} />
+        <InspectionQueuePage
+          drains={drains}
+          crewOptions={crewOptions}
+          onAssign={onInspectionAssign}
+        />
       ) : (
-        <CleaningQueuePage drains={drains} onAssign={onAssign} />
+        <CleaningQueuePage
+          drains={drains}
+          crewOptions={crewOptions}
+          onAssign={onAssign}
+        />
       )}
     </div>
   );
@@ -2661,13 +2435,16 @@ void ReportPage;
 
 function InspectionQueuePage({
   drains,
+  crewOptions,
   onAssign,
 }: {
   drains: DrainRecord[];
+  crewOptions: CrewOption[];
   onAssign: (
     drainId: string,
     crew: string,
     completionTime: string,
+    shift: string,
     note: string,
   ) => void;
 }) {
@@ -2794,6 +2571,7 @@ function InspectionQueuePage({
       {assignedDrainId ? (
         <AssignCrewModal
           drainId={assignedDrainId}
+          crewOptions={crewOptions}
           onClose={() => setAssignedDrainId(null)}
           onAssign={onAssign}
         />
@@ -2905,23 +2683,28 @@ void InspectionModal;
 
 function CleaningQueuePage({
   drains,
+  crewOptions,
   onAssign,
 }: {
   drains: DrainRecord[];
+  crewOptions: CrewOption[];
   onAssign: (
     drainId: string,
     crew: string,
     completionTime: string,
+    shift: string,
     note: string,
   ) => void;
 }) {
   const [selectedDrainId, setSelectedDrainId] = useState<string | null>(null);
-  const cleaningDrains = drains.filter(
-    (drain) =>
-      drain.status === "Cleaning Recommended" ||
-      drain.status === "Assigned" ||
-      drain.status === "Rework Required",
-  ).filter((drain) => !drain.assignedCrew);
+  const cleaningDrains = drains
+    .filter(
+      (drain) =>
+        drain.status === "Cleaning Recommended" ||
+        drain.status === "Assigned" ||
+        drain.status === "Rework Required",
+    )
+    .filter((drain) => !drain.assignedCrew);
 
   return (
     <div className="page-stack">
@@ -2962,7 +2745,11 @@ function CleaningQueuePage({
                       {drain.status}
                     </span>
                   </td>
-                  <td>{drain.assignedCrew ?? "Unassigned"}</td>
+                  <td>
+                    {drain.assignedCrews?.join(", ") ??
+                      drain.assignedCrew ??
+                      "Unassigned"}
+                  </td>
                   <td>
                     <button
                       type="button"
@@ -2982,6 +2769,7 @@ function CleaningQueuePage({
       {selectedDrainId ? (
         <AssignCrewModal
           drainId={selectedDrainId}
+          crewOptions={crewOptions}
           onClose={() => setSelectedDrainId(null)}
           onAssign={onAssign}
         />
@@ -2992,21 +2780,31 @@ function CleaningQueuePage({
 
 function AssignCrewModal({
   drainId,
+  crewOptions,
   onClose,
   onAssign,
 }: {
   drainId: string;
+  crewOptions: CrewOption[];
   onClose: () => void;
   onAssign: (
     drainId: string,
     crew: string,
     completionTime: string,
+    shift: string,
     note: string,
   ) => void;
 }) {
-  const [crew, setCrew] = useState("Crew Alpha");
-  const [completionTime, setCompletionTime] = useState("Today 16:00");
+  const [crews, setCrews] = useState(["Crew Alpha"]);
+  const [crewSearch, setCrewSearch] = useState("");
+  const [deadlineDate, setDeadlineDate] = useState("");
+  const [deadlineTime, setDeadlineTime] = useState("08:00");
+  const [shift, setShift] = useState("Morning");
   const [note, setNote] = useState("");
+  const minimumDeadlineDate = getTodayInputDate();
+  const matchingCrews = crewOptions.filter((crewOption) =>
+    crewOption.name.toLowerCase().includes(crewSearch.trim().toLowerCase()),
+  );
 
   return (
     <div className="modal-backdrop">
@@ -3019,24 +2817,127 @@ function AssignCrewModal({
         </div>
 
         <div className="form-grid">
+          <div className="crew-picker-field">
+            <span className="form-label">Crews</span>
+            <div className="crew-picker">
+              <div className="crew-picker-search">
+                <Search size={16} aria-hidden="true" />
+                <input
+                  value={crewSearch}
+                  onChange={(event) => setCrewSearch(event.target.value)}
+                  placeholder="Search crews"
+                  aria-label="Search crews"
+                />
+              </div>
+              <div className="crew-picker-selection">
+                {crews.length ? (
+                  crews.map((crew) => (
+                    <button
+                      type="button"
+                      className="crew-picker-chip"
+                      key={crew}
+                      onClick={() =>
+                        setCrews((current) =>
+                          current.filter((selectedCrew) => selectedCrew !== crew),
+                        )
+                      }
+                      aria-label={`Remove ${crew}`}
+                    >
+                      {crew} <span aria-hidden="true">×</span>
+                    </button>
+                  ))
+                ) : (
+                  <span className="crew-picker-empty">No crews selected</span>
+                )}
+              </div>
+              <div className="crew-picker-results" role="listbox" aria-label="Available crews">
+                {matchingCrews.length ? (
+                  matchingCrews.map((crewOption) => {
+                    const selected = crews.includes(crewOption.name);
+                    return (
+                      <button
+                        type="button"
+                        className={`crew-picker-option${selected ? " selected" : ""}`}
+                        key={crewOption.name}
+                        onClick={() =>
+                          setCrews((current) =>
+                            selected
+                              ? current.filter((crew) => crew !== crewOption.name)
+                              : [...current, crewOption.name],
+                          )
+                        }
+                        role="option"
+                        aria-selected={selected}
+                      >
+                        <span>
+                          <strong>{crewOption.name}</strong>
+                          <small>
+                            {` · ${crewOption.members.length} ${
+                              crewOption.members.length === 1
+                                ? "member"
+                                : "members"
+                            }`}
+                          </small>
+                        </span>
+                        <span>{selected ? "Selected" : "Add"}</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <span className="crew-picker-empty">No matching crews</span>
+                )}
+              </div>
+            </div>
+          </div>
+
           <label>
-            Crew
-            <select
-              value={crew}
-              onChange={(event) => setCrew(event.target.value)}
-            >
-              <option>Crew Alpha</option>
-              <option>Crew Bravo</option>
-              <option>Crew Charlie</option>
-            </select>
+            Deadline date
+            <input
+              type="date"
+              value={deadlineDate}
+              min={minimumDeadlineDate}
+              onChange={(event) => {
+                const nextDate = event.target.value;
+                setDeadlineDate(
+                  nextDate && nextDate >= minimumDeadlineDate ? nextDate : "",
+                );
+              }}
+              required
+            />
           </label>
 
           <label>
-            Target completion time
+            Deadline time
             <input
-              value={completionTime}
-              onChange={(event) => setCompletionTime(event.target.value)}
+              type="time"
+              value={deadlineTime}
+              onChange={(event) => setDeadlineTime(event.target.value)}
+              required
             />
+          </label>
+
+          <label>
+            Shift
+            <select
+              value={shift}
+              onChange={(event) => {
+                const nextShift = event.target.value;
+                setShift(nextShift);
+                setDeadlineTime(
+                  {
+                    Morning: "08:00",
+                    Afternoon: "14:00",
+                    Evening: "18:00",
+                    Night: "22:00",
+                  }[nextShift] ?? "08:00",
+                );
+              }}
+            >
+              <option>Morning</option>
+              <option>Afternoon</option>
+              <option>Evening</option>
+              <option>Night</option>
+            </select>
           </label>
 
           <label className="full-width">
@@ -3052,8 +2953,26 @@ function AssignCrewModal({
             <button
               type="button"
               className="btn-primary"
+              disabled={
+                !crews.length ||
+                !deadlineDate ||
+                deadlineDate < minimumDeadlineDate
+              }
               onClick={() => {
-                onAssign(drainId, crew, completionTime, note);
+                if (
+                  !crews.length ||
+                  !deadlineDate ||
+                  deadlineDate < minimumDeadlineDate
+                ) {
+                  return;
+                }
+                onAssign(
+                  drainId,
+                  crews.join(", "),
+                  new Date(`${deadlineDate}T${deadlineTime}`).toISOString(),
+                  shift,
+                  note,
+                );
                 onClose();
               }}
             >
@@ -3272,12 +3191,12 @@ function EvidenceReviewPage({
   const selectedEvidenceId = searchParams.get("evidenceId");
   const reviewQueue = drains.filter(
     (drain) =>
-      (drain.status === "Pending Review" || drain.status === "Rework Required") &&
+      (drain.status === "Pending Review" ||
+        drain.status === "Rework Required") &&
       !drain.workStatus?.startsWith("Returned to field app"),
   );
   const selectedDrain = reviewQueue.find(
-    (drain) =>
-      (drain.evidenceId ?? `EVD-${drain.id}`) === selectedEvidenceId,
+    (drain) => (drain.evidenceId ?? `EVD-${drain.id}`) === selectedEvidenceId,
   );
 
   if (!reviewQueue.length) {
@@ -3298,109 +3217,113 @@ function EvidenceReviewPage({
         <div className="panel empty-state evidence-selection-empty">
           <ShieldCheck size={30} />
           <h2>Select an evidence record</h2>
-          <p>Choose an evidence ID from the index to view its review details.</p>
+          <p>
+            Choose an evidence ID from the index to view its review details.
+          </p>
         </div>
       ) : (
-      [selectedDrain].map((drain) => (
-        <div key={drain.id} className="panel evidence-card">
-          <div className="panel-header">
-            <div>
-              <h2>{drain.evidenceId ?? `EVD-${drain.id}`}</h2>
-              <span className="panel-note">{drain.id} · {drain.location}</span>
+        [selectedDrain].map((drain) => (
+          <div key={drain.id} className="panel evidence-card">
+            <div className="panel-header">
+              <div>
+                <h2>{drain.evidenceId ?? `EVD-${drain.id}`}</h2>
+                <span className="panel-note">
+                  {drain.id} · {drain.location}
+                </span>
+              </div>
+              <span className={`status-chip ${getStatusColor(drain.status)}`}>
+                {drain.status}
+              </span>
             </div>
-            <span className={`status-chip ${getStatusColor(drain.status)}`}>
-              {drain.status}
-            </span>
-          </div>
 
-          <div className="evidence-grid">
-            <div className="evidence-image placeholder">Before image</div>
-            <div className="evidence-image placeholder">After image</div>
-          </div>
+            <div className="evidence-grid">
+              <div className="evidence-image placeholder">Before image</div>
+              <div className="evidence-image placeholder">After image</div>
+            </div>
 
-          <div className="evidence-meta-list">
-            <div>
-              <span>Location</span>
-              <strong>{drain.location}</strong>
+            <div className="evidence-meta-list">
+              <div>
+                <span>Location</span>
+                <strong>{drain.location}</strong>
+              </div>
+              <div>
+                <span>Submitted timestamp</span>
+                <strong>{formatDate(drain.lastObservation)}</strong>
+              </div>
+              <div>
+                <span>Work notes</span>
+                <strong>{drain.reason}</strong>
+              </div>
+              <div>
+                <span>Evidence status</span>
+                <strong>{drain.evidenceStatus}</strong>
+              </div>
+              <div>
+                <span>Reviewer notes</span>
+                <strong>
+                  Location mismatch review is flagged for checking the field
+                  trace.
+                </strong>
+              </div>
             </div>
-            <div>
-              <span>Submitted timestamp</span>
-              <strong>{formatDate(drain.lastObservation)}</strong>
-            </div>
-            <div>
-              <span>Work notes</span>
-              <strong>{drain.reason}</strong>
-            </div>
-            <div>
-              <span>Evidence status</span>
-              <strong>{drain.evidenceStatus}</strong>
-            </div>
-            <div>
-              <span>Reviewer notes</span>
-              <strong>
-                Location mismatch review is flagged for checking the field
-                trace.
-              </strong>
-            </div>
-          </div>
 
-          <div className="button-row">
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => {
-                const confirmed = window.confirm(
-                  `Accept evidence for ${drain.id}?`,
-                );
-                if (confirmed) {
-                  onAction(drain.id, "Accept", "Accepted after review.");
-                  setSearchParams({});
-                }
-              }}
-            >
-              Accept Evidence
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => {
-                const confirmed = window.confirm(
-                  `Request rework for ${drain.evidenceId ?? `EVD-${drain.id}`} and return it to the cleaning queue?`,
-                );
-                if (confirmed) {
-                  onAction(
-                    drain.id,
-                    "Request Rework",
-                    "Rework requested because evidence quality is insufficient.",
+            <div className="button-row">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  const confirmed = window.confirm(
+                    `Accept evidence for ${drain.id}?`,
                   );
-                  setSearchParams({});
-                }
-              }}
-            >
-              Request Rework
-            </button>
-            <button
-              type="button"
-              className="btn-secondary alt"
-              onClick={() => {
-                const confirmed = window.confirm(
-                  `Send ${drain.evidenceId ?? `EVD-${drain.id}`} back to the field app for location clarification?`,
-                );
-                if (confirmed) {
-                  onAction(
-                    drain.id,
-                    "Flag Location Mismatch",
-                    "Location mismatch warning: field evidence did not match the assigned drain location.",
+                  if (confirmed) {
+                    onAction(drain.id, "Accept", "Accepted after review.");
+                    setSearchParams({});
+                  }
+                }}
+              >
+                Accept Evidence
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  const confirmed = window.confirm(
+                    `Request rework for ${drain.evidenceId ?? `EVD-${drain.id}`} and return it to the cleaning queue?`,
                   );
-                  setSearchParams({});
-                }
-              }}
-            >
-              Flag Location Mismatch
-            </button>
+                  if (confirmed) {
+                    onAction(
+                      drain.id,
+                      "Request Rework",
+                      "Rework requested because evidence quality is insufficient.",
+                    );
+                    setSearchParams({});
+                  }
+                }}
+              >
+                Request Rework
+              </button>
+              <button
+                type="button"
+                className="btn-secondary alt"
+                onClick={() => {
+                  const confirmed = window.confirm(
+                    `Send ${drain.evidenceId ?? `EVD-${drain.id}`} back to the field app for location clarification?`,
+                  );
+                  if (confirmed) {
+                    onAction(
+                      drain.id,
+                      "Flag Location Mismatch",
+                      "Location mismatch warning: field evidence did not match the assigned drain location.",
+                    );
+                    setSearchParams({});
+                  }
+                }}
+              >
+                Flag Location Mismatch
+              </button>
+            </div>
           </div>
-        </div>
-      ))
+        ))
       )}
     </div>
   );
@@ -3717,18 +3640,21 @@ function WorkOrdersPage({ drains }: { drains: DrainRecord[] }) {
         drain.status === "Pending Review" ||
         drain.status === "Rework Required"),
   );
-  const assignedTeams = [...new Set(
-    workOrders
-      .map((drain) => drain.assignedCrew)
-      .filter((crew): crew is string => Boolean(crew)),
-  )].sort((first, second) => first.localeCompare(second));
+  const assignedTeams = [
+    ...new Set(
+      workOrders
+        .map((drain) => drain.assignedCrew)
+        .filter((crew): crew is string => Boolean(crew)),
+    ),
+  ].sort((first, second) => first.localeCompare(second));
   const normalizedTeamSearch = teamSearch.trim().toLowerCase();
   const matchingTeams = assignedTeams.filter((assignedTeam) =>
     assignedTeam.toLowerCase().includes(normalizedTeamSearch),
   );
-  const teamWorkload = workOrders.filter((drain) =>
-    !normalizedTeamSearch ||
-    drain.assignedCrew?.toLowerCase().includes(normalizedTeamSearch),
+  const teamWorkload = workOrders.filter(
+    (drain) =>
+      !normalizedTeamSearch ||
+      drain.assignedCrew?.toLowerCase().includes(normalizedTeamSearch),
   ).length;
   const filtered = workOrders.filter((drain) => {
     const haystack =
@@ -3737,7 +3663,8 @@ function WorkOrdersPage({ drains }: { drains: DrainRecord[] }) {
     if (
       normalizedTeamSearch &&
       !drain.assignedCrew?.toLowerCase().includes(normalizedTeamSearch)
-    ) return false;
+    )
+      return false;
     if (status === "All Work Orders") return true;
     if (status === "Inspection")
       return getWorkOrderTeam(drain) === "Inspection team";
@@ -3840,7 +3767,11 @@ function WorkOrdersPage({ drains }: { drains: DrainRecord[] }) {
                     {drain.priority.toFixed(2)}
                   </td>
                   <td>{getWorkOrderTeam(drain)}</td>
-                  <td>{drain.assignedCrew ?? "Unassigned"}</td>
+                  <td>
+                    {drain.assignedCrews?.join(", ") ??
+                      drain.assignedCrew ??
+                      "Unassigned"}
+                  </td>
                   <td>
                     <span
                       className={`status-chip ${getStatusColor(drain.status)}`}
@@ -3880,6 +3811,7 @@ function ReportsPage({
   outcomes?: OutcomeRecord[];
   wardOptions: string[];
 }) {
+  const navigate = useNavigate();
   const [wardFilter, setWardFilter] = useState("All");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -3958,7 +3890,8 @@ function ReportsPage({
     ["Uncertain Condition", "#7C3AED"],
   ].map(([issueType, color]) => ({
     name: issueType,
-    value: filteredReports.filter((report) => report.issueType === issueType).length,
+    value: filteredReports.filter((report) => report.issueType === issueType)
+      .length,
     color,
   }));
   const reportStatusCounts = [
@@ -3984,7 +3917,9 @@ function ReportsPage({
         <div className="panel-header">
           <div>
             <h2>Reports</h2>
-            <p className="panel-note">Operational records and website activity history.</p>
+            <p className="panel-note">
+              Operational records and website activity history.
+            </p>
           </div>
         </div>
 
@@ -4019,14 +3954,22 @@ function ReportsPage({
             <div className="panel-header">
               <div>
                 <h2>Issue mix</h2>
-                <span className="panel-note">Filtered reports by reported problem</span>
+                <span className="panel-note">
+                  Filtered reports by reported problem
+                </span>
               </div>
             </div>
             <div className="chart-wrap small">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={issueTypeCounts}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" interval={0} angle={-18} textAnchor="end" height={48} />
+                  <XAxis
+                    dataKey="name"
+                    interval={0}
+                    angle={-18}
+                    textAnchor="end"
+                    height={48}
+                  />
                   <YAxis allowDecimals={false} />
                   <Tooltip />
                   <Bar dataKey="value" radius={[8, 8, 0, 0]}>
@@ -4043,7 +3986,9 @@ function ReportsPage({
             <div className="panel-header">
               <div>
                 <h2>Report lifecycle</h2>
-                <span className="panel-note">Open, duplicate, and resolved records</span>
+                <span className="panel-note">
+                  Open, duplicate, and resolved records
+                </span>
               </div>
             </div>
             <div className="chart-wrap small">
@@ -4068,7 +4013,9 @@ function ReportsPage({
           <div className="reports-section-header">
             <div>
               <h2>Report data</h2>
-              <span className="panel-note">{filteredReports.length} matching records</span>
+              <span className="panel-note">
+                {filteredReports.length} matching records
+              </span>
             </div>
             <button type="button" className="btn-secondary" onClick={exportCsv}>
               <Download size={15} />
@@ -4102,11 +4049,26 @@ function ReportsPage({
           <div className="panel-header">
             <div>
               <h2>Log</h2>
-              <span className="panel-note">Combined website actions and task transitions</span>
+              <span className="panel-note">
+                Combined website actions and task transitions
+              </span>
             </div>
             <div className="reports-log-actions">
-              <span className="panel-note">{filteredActivities.length} entries</span>
-              <button type="button" className="btn-secondary" onClick={exportLogCsv}>
+              <span className="panel-note">
+                {filteredActivities.length} entries
+              </span>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => navigate("/logs")}
+              >
+                Open full logs
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={exportLogCsv}
+              >
                 <Download size={15} />
                 Export log CSV
               </button>
@@ -4119,7 +4081,10 @@ function ReportsPage({
                 <div>
                   <strong>{activity.title}</strong>
                   <p>{activity.detail}</p>
-                  <small>{formatDate(activity.timestamp)} · {activity.user ?? "User not recorded"}</small>
+                  <small>
+                    {formatDate(activity.timestamp)} ·{" "}
+                    {activity.user ?? "User not recorded"}
+                  </small>
                 </div>
               </div>
             ))}
@@ -4130,6 +4095,1535 @@ function ReportsPage({
   );
 }
 
+function AddWorkerPage({
+  crews,
+  onSave,
+}: {
+  crews: CrewRecord[];
+  onSave: (worker: CrewWorker) => void;
+}) {
+  const navigate = useNavigate();
+  const [form, setForm] = useState({
+    id: "",
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    role: "Helper",
+    crew: "Unassigned",
+    ward: "Ward 12",
+    status: "Available" as CrewWorker["status"],
+  });
+  const save = () => {
+    if (!form.id.trim() || !form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.address.trim()) return;
+    onSave({
+      id: form.id.trim().toUpperCase(),
+      name: form.name.trim(),
+      currentCrew: form.crew,
+      role: form.role,
+      ward: form.ward,
+      status: form.status,
+      officialEmail: form.email.trim(),
+      phoneNumber: form.phone.trim(),
+      address: form.address.trim(),
+      loginStatus: "Credentials issued",
+      joinedAt: new Date().toISOString(),
+    });
+    navigate("/crew-management");
+  };
+  return (
+    <div className="page-stack dedicated-form-page">
+      <div className="panel form-page-header">
+        <div>
+          <div className="eyebrow">Crew Management</div>
+          <h2>Register new worker</h2>
+          <p className="panel-note">
+            The officer approves the worker record and issues secure field-app
+            credentials before returning to Crew Management.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => navigate("/crew-management")}
+        >
+          Back to Crew Management
+        </button>
+      </div>
+      <div className="panel">
+        <div className="form-grid">
+          <label>
+            Worker ID
+            <input
+              value={form.id}
+              onChange={(event) => setForm({ ...form, id: event.target.value })}
+              placeholder="WRK-107"
+            />
+          </label>
+          <label>
+            Full name
+            <input
+              value={form.name}
+              onChange={(event) =>
+                setForm({ ...form, name: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            Official email
+            <input
+              type="email"
+              value={form.email}
+              onChange={(event) =>
+                setForm({ ...form, email: event.target.value })
+              }
+            />
+          </label>
+          <label>Phone number<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="+91 98765 00000" /></label>
+          <label>Address<input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} /></label>
+          <label>
+            Assignment role
+            <select
+              value={form.role}
+              onChange={(event) =>
+                setForm({ ...form, role: event.target.value })
+              }
+            >
+              <option>Leader</option>
+              <option>Technician</option>
+              <option>Helper</option>
+            </select>
+          </label>
+          <label>
+            Initial crew
+            <select
+              value={form.crew}
+              onChange={(event) =>
+                setForm({ ...form, crew: event.target.value })
+              }
+            >
+              <option>Unassigned</option>
+              {crews.map((crew) => (
+                <option key={crew.id}>{crew.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Ward
+            <select
+              value={form.ward}
+              onChange={(event) =>
+                setForm({ ...form, ward: event.target.value })
+              }
+            >
+              <option>Ward 4</option>
+              <option>Ward 7</option>
+              <option>Ward 12</option>
+              <option>Ward 15</option>
+              <option>Ward 19</option>
+              <option>Ward 22</option>
+            </select>
+          </label>
+          <label>
+            Operational status
+            <select
+              value={form.status}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  status: event.target.value as CrewWorker["status"],
+                })
+              }
+            >
+              <option>Available</option>
+              <option>Active</option>
+              <option>On leave</option>
+            </select>
+          </label>
+        </div>
+        <div className="button-row">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={save}
+            disabled={!form.id || !form.name || !form.email || !form.phone || !form.address}
+          >
+            Approve worker and save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreateCrewPage({
+  crews,
+  workers,
+  onSave,
+  onAssignWorkers,
+}: {
+  crews: CrewRecord[];
+  workers: CrewWorker[];
+  onSave: (crew: CrewRecord) => void;
+  onAssignWorkers: (crew: string, workerIds: string[]) => void;
+}) {
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [ward, setWard] = useState("Ward 12");
+  const [selectedWorkers, setSelectedWorkers] = useState<string[]>([]);
+  const [sourceCrew, setSourceCrew] = useState("");
+  const [splitName, setSplitName] = useState("");
+  const unassigned = workers.filter(
+    (worker) => worker.currentCrew === "Unassigned",
+  );
+  const save = () => {
+    if (!name.trim()) return;
+    onSave({
+      id: createId("CREW"),
+      name: name.trim(),
+      ward,
+      memberIds: selectedWorkers,
+      createdAt: new Date().toISOString(),
+    });
+    if (selectedWorkers.length) onAssignWorkers(name.trim(), selectedWorkers);
+    navigate("/crew-management");
+  };
+  return (
+    <div className="page-stack dedicated-form-page">
+      <div className="panel form-page-header">
+        <div>
+          <div className="eyebrow">Crew Management</div>
+          <h2>Create or split a crew</h2>
+          <p className="panel-note">
+            Create a ward crew, assign unassigned workers, or prepare a new crew
+            for a large operation.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => navigate("/crew-management")}
+        >
+          Back to Crew Management
+        </button>
+      </div>
+      <div className="panel">
+        <div className="form-grid">
+          <label>
+            Crew name
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Crew Delta"
+            />
+          </label>
+          <label>
+            Assigned ward
+            <select
+              value={ward}
+              onChange={(event) => setWard(event.target.value)}
+            >
+              <option>Ward 4</option>
+              <option>Ward 7</option>
+              <option>Ward 12</option>
+              <option>Ward 15</option>
+              <option>Ward 19</option>
+              <option>Ward 22</option>
+            </select>
+          </label>
+        </div>
+        <h3>Assign unassigned workers</h3>
+        <div className="worker-check-list">
+          {unassigned.length ? (
+            unassigned.map((worker) => (
+              <label key={worker.id} className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={selectedWorkers.includes(worker.id)}
+                  onChange={(event) =>
+                    setSelectedWorkers(
+                      event.target.checked
+                        ? [...selectedWorkers, worker.id]
+                        : selectedWorkers.filter((id) => id !== worker.id),
+                    )
+                  }
+                />
+                {worker.id} · {worker.name}
+              </label>
+            ))
+          ) : (
+            <span className="panel-note">
+              No unassigned workers. Workers can be reassigned from the Crew
+              Management worker detail panel.
+            </span>
+          )}
+        </div>
+        <div className="button-row">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={save}
+            disabled={!name.trim()}
+          >
+            Create crew and assign selected
+          </button>
+        </div>
+      </div>
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>Split an existing crew</h2>
+            <span className="panel-note">
+              Use this when a crew grows beyond the ward’s practical operating
+              size.
+            </span>
+          </div>
+        </div>
+        <div className="form-grid">
+          <label>
+            Source crew
+            <select
+              value={sourceCrew}
+              onChange={(event) => setSourceCrew(event.target.value)}
+            >
+              <option value="">Select crew</option>
+              {crews.map((crew) => (
+                <option key={crew.id} value={crew.name}>
+                  {crew.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            New crew name
+            <input
+              value={splitName}
+              onChange={(event) => setSplitName(event.target.value)}
+              placeholder="Crew Alpha B"
+            />
+          </label>
+        </div>
+        <div className="button-row">
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={!sourceCrew || !splitName.trim()}
+            onClick={() => {
+              const members = workers.filter(
+                (worker) => worker.currentCrew === sourceCrew,
+              );
+              const moved = members
+                .slice(Math.ceil(members.length / 2))
+                .map((worker) => worker.id);
+              onSave({
+                id: createId("CREW"),
+                name: splitName.trim(),
+                ward:
+                  crews.find((crew) => crew.name === sourceCrew)?.ward ?? ward,
+                memberIds: moved,
+                createdAt: new Date().toISOString(),
+              });
+              onAssignWorkers(splitName.trim(), moved);
+              navigate("/crew-management");
+            }}
+          >
+            Create split crew
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LogsPage({
+  activities,
+  audits,
+  workers,
+  crews,
+}: {
+  activities: ActivityEntry[];
+  audits: CreditAudit[];
+  workers: CrewWorker[];
+  crews: CrewRecord[];
+}) {
+  const [tab, setTab] = useState("Universal");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("All");
+  const records =
+    tab === "Universal"
+      ? activities.map((item) => ({
+          id: item.id,
+          title: item.title,
+          detail: item.detail,
+          timestamp: item.timestamp,
+          user: item.user ?? "System",
+          category: item.category ?? "General",
+        }))
+      : tab === "Report logs"
+        ? activities
+            .filter(
+              (item) =>
+                item.category === "Reports" ||
+                item.title.toLowerCase().includes("report"),
+            )
+            .map((item) => ({
+              id: item.id,
+              title: item.title,
+              detail: item.detail,
+              timestamp: item.timestamp,
+              user: item.user ?? "System",
+              category: "Reports",
+            }))
+        : tab === "Crew logs"
+          ? activities
+              .filter(
+                (item) =>
+                  item.category === "Crew" ||
+                  item.detail.toLowerCase().includes("crew"),
+              )
+              .map((item) => ({
+                id: item.id,
+                title: item.title,
+                detail: item.detail,
+                timestamp: item.timestamp,
+                user: item.user ?? "System",
+                category: "Crew",
+              }))
+          : audits.map((item) => ({
+              id: item.id,
+              title: item.action,
+              detail: `${item.workerId ?? ""} ${item.workOrderId} · ${item.reason}`,
+              timestamp: item.timestamp,
+              user: item.reviewer,
+              category: tab === "Worker logs" ? "Worker" : "Ward",
+            }));
+  const filtered = records.filter((record) => {
+    const textMatch = `${record.title} ${record.detail} ${record.user}`
+      .toLowerCase()
+      .includes(query.toLowerCase());
+    return textMatch && (filter === "All" || record.category === filter);
+  });
+  const searchPlaceholder =
+    tab === "Worker logs"
+      ? "Search worker ID or name"
+      : tab === "Crew logs"
+        ? "Search crew"
+        : tab === "Ward logs"
+          ? "Search ward"
+          : tab === "Report logs"
+            ? "Search report activity"
+            : "Search all activity";
+  return (
+    <div className="logs-page">
+      <div className="logs-page-heading">
+        <div>
+          <div className="eyebrow">Audit and traceability</div>
+          <h2>Logs</h2>
+        </div>
+        <span className="logs-result-count">{filtered.length} matching records</span>
+      </div>
+      <div className="logs-tabs">
+        {[
+          "Universal",
+          "Report logs",
+          "Crew logs",
+          "Worker logs",
+          "Ward logs",
+        ].map((name) => (
+          <button
+            type="button"
+            key={name}
+            className={tab === name ? "active" : ""}
+            onClick={() => {
+              setTab(name);
+              setQuery("");
+            }}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+      <div className="logs-toolbar">
+        <label className="logs-search-field">
+          <Search size={17} aria-hidden="true" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={searchPlaceholder} aria-label={searchPlaceholder} />
+          {query ? <button type="button" onClick={() => setQuery("")} aria-label="Clear log search">×</button> : null}
+        </label>
+        {tab === "Universal" ? (
+          <label className="logs-filter-field">
+            <span>Filter</span>
+            <select value={filter} onChange={(event) => setFilter(event.target.value)} aria-label="Filter universal logs">
+              <option>All</option>
+              <option>Evidence</option>
+              <option>Cleaning</option>
+              <option>Crew</option>
+              <option>Credit</option>
+            </select>
+          </label>
+        ) : null}
+      </div>
+      <div className="logs-list panel">
+        {filtered.map((record) => (
+          <div className="log-row" key={record.id}>
+            <span className="dot info" />
+            <div>
+              <strong>{record.title}</strong>
+              <p>{record.detail}</p>
+              <small>
+                {record.user} · {formatDate(record.timestamp)}
+              </small>
+            </div>
+          </div>
+        ))}
+        {!filtered.length ? (
+          <div className="empty-state">
+            <ClipboardList size={28} />
+            <h2>No matching logs</h2>
+          </div>
+        ) : null}
+      </div>
+      <div className="panel-note">
+        {workers.length} workers · {crews.length} crews · {filtered.length}{" "}
+        matching log records
+      </div>
+    </div>
+  );
+}
+
+function CrewManagementPage({
+  workers,
+  crews,
+  reports,
+  pools,
+  allocations,
+  policy,
+  onPolicyChange,
+  onAddWorker,
+  onUpdateWorker,
+  onAssignWorkers,
+  onResetPassword,
+}: {
+  workers: CrewWorker[];
+  crews: CrewRecord[];
+  reports: ReportRecord[];
+  pools: CreditPool[];
+  allocations: CreditAllocation[];
+  policy: CreditPolicy;
+  onPolicyChange: (policy: CreditPolicy) => void;
+  onAddWorker: (worker: CrewWorker) => void;
+  onUpdateWorker: (workerId: string, changes: Partial<CrewWorker>) => void;
+  onAssignWorkers: (crew: string, workerIds: string[]) => void;
+  onResetPassword: (worker: CrewWorker) => void;
+}) {
+  const navigate = useNavigate();
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [workerQuery, setWorkerQuery] = useState("");
+  const [selectedWorkerId, setSelectedWorkerId] = useState("");
+  const [reportPeriod, setReportPeriod] = useState("month");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [selectedWard, setSelectedWard] = useState<string | null>(null);
+  const [editingWard, setEditingWard] = useState(false);
+  const [wardDraft, setWardDraft] = useState<WardAllowance | null>(null);
+  const [newWorker, setNewWorker] = useState({
+    name: "",
+    id: "",
+    email: "",
+    role: "Helper",
+    crew: "Crew Alpha",
+    ward: "Ward 12",
+    status: "Available" as CrewWorker["status"],
+  });
+  const workerStatus = (worker: CrewWorker) => worker.status ?? "Active";
+  const crewNames = crews.map((crew) => crew.name);
+  const activeWorkers = workers.filter(
+    (worker) => workerStatus(worker) === "Active",
+  ).length;
+  const onLeave = workers.filter(
+    (worker) => workerStatus(worker) === "On leave",
+  ).length;
+  const availableWorkers = workers.filter(
+    (worker) => workerStatus(worker) === "Available",
+  ).length;
+  const monthlyPoints = allocations
+    .filter((allocation) => {
+      const date = new Date(allocation.timestamp);
+      const now = new Date();
+      return (
+        date.getMonth() === now.getMonth() &&
+        date.getFullYear() === now.getFullYear()
+      );
+    })
+    .reduce((sum, allocation) => sum + allocation.credits, 0);
+  const matchingWorkers = workers.filter((worker) =>
+    `${worker.id} ${worker.name} ${worker.currentCrew}`
+      .toLowerCase()
+      .includes(workerQuery.toLowerCase()),
+  );
+  const selectedWorker = workers.find(
+    (worker) => worker.id === selectedWorkerId,
+  );
+  const selectedAllocations = allocations.filter(
+    (allocation) => allocation.workerId === selectedWorkerId,
+  );
+  const reportCutoff = (period: string) => {
+    const date = new Date();
+    if (period === "week") date.setDate(date.getDate() - 7);
+    if (period === "month") date.setMonth(date.getMonth() - 1);
+    if (period === "3 months") date.setMonth(date.getMonth() - 3);
+    if (period === "6 months") date.setMonth(date.getMonth() - 6);
+    return date;
+  };
+  const workerReportRows = selectedAllocations.filter((allocation) => {
+    if (reportPeriod === "custom") {
+      if (customStart && new Date(allocation.timestamp) < new Date(customStart))
+        return false;
+      if (
+        customEnd &&
+        new Date(allocation.timestamp) > new Date(`${customEnd}T23:59:59`)
+      )
+        return false;
+      return true;
+    }
+    return new Date(allocation.timestamp) >= reportCutoff(reportPeriod);
+  });
+  const downloadWorkerReport = () => {
+    if (!selectedWorker) return;
+    const rows = [
+      [
+        "Worker ID",
+        "Worker",
+        "Historical crew",
+        "Role",
+        "Work order",
+        "Drain section",
+        "Linked reports",
+        "Credits",
+        "Timestamp",
+      ],
+      ...workerReportRows.map((allocation) => {
+        const pool = pools.find((item) => item.id === allocation.poolId);
+        return [
+          allocation.workerId,
+          allocation.workerName,
+          allocation.historicalCrew,
+          allocation.role,
+          allocation.workOrderId,
+          pool?.drainId ?? "",
+          reports
+            .filter((report) => report.drainId === pool?.drainId)
+            .map((report) => report.id)
+            .join(" "),
+          allocation.credits,
+          allocation.timestamp,
+        ];
+      }),
+    ];
+    const csv = rows
+      .map((row) =>
+        row
+          .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+          .join(","),
+      )
+      .join("\n");
+    const url = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${selectedWorker.id}-work-report.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const saveWorker = () => {
+    if (!newWorker.id.trim() || !newWorker.name.trim()) return;
+    onAddWorker({
+      id: newWorker.id.trim().toUpperCase(),
+      name: newWorker.name.trim(),
+      currentCrew: newWorker.crew,
+      role: newWorker.role,
+      ward: newWorker.ward,
+      status: newWorker.status,
+      officialEmail: newWorker.email,
+      loginStatus: "Credentials issued",
+      joinedAt: new Date().toISOString(),
+    });
+    setNewWorker({
+      name: "",
+      id: "",
+      email: "",
+      role: "Helper",
+      crew: "Crew Alpha",
+      ward: "Ward 12",
+      status: "Available",
+    });
+    setShowAddForm(false);
+  };
+  return (
+    <div className="page-stack crew-management-redesign">
+      <div className="panel crew-management-hero">
+        <div>
+          <div className="eyebrow">Workforce operations</div>
+          <h2>Crew Management</h2>
+          <p className="panel-note">
+            Manage approved workers, ward crews and verified work outcomes.
+            Attendance remains a field coordination record, never a credit
+            input.
+          </p>
+        </div>
+        <div className="button-row">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => navigate("/crew-management/add-worker")}
+          >
+            <UsersRound size={16} /> Add new worker
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => navigate("/crew-management/create-crew")}
+          >
+            <UsersRound size={16} /> Create new crew
+          </button>
+        </div>
+      </div>
+      <div className="cards-grid three-col crew-stat-grid">
+        {[
+          ["Total workers connected", workers.length, "teal"],
+          ["Active workers", activeWorkers, "teal"],
+          ["Workers on leave", onLeave, "amber"],
+          ["Workers available", availableWorkers, "slate"],
+          ["Crews / ward groups", crews.length, "teal"],
+          ["Points given this month", monthlyPoints.toFixed(0), "teal"],
+        ].map(([label, value, accent]) => (
+          <div className={`metric-card ${accent}`} key={label}>
+            <span className="metric-label">{label}</span>
+            <span className="metric-value">{value}</span>
+            <span className="panel-note">Outcome-based records only</span>
+          </div>
+        ))}
+      </div>
+      {showAddForm ? (
+        <div className="panel worker-form-panel">
+          <div className="panel-header">
+            <div>
+              <h2>Register and approve worker</h2>
+              <span className="panel-note">
+                Approved workers receive official field-app access credentials.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setShowAddForm(false)}
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="form-grid">
+            <label>
+              Worker ID
+              <input
+                value={newWorker.id}
+                onChange={(event) =>
+                  setNewWorker({ ...newWorker, id: event.target.value })
+                }
+                placeholder="WRK-107"
+              />
+            </label>
+            <label>
+              Full name
+              <input
+                value={newWorker.name}
+                onChange={(event) =>
+                  setNewWorker({ ...newWorker, name: event.target.value })
+                }
+              />
+            </label>
+            <label>
+              Official email
+              <input
+                type="email"
+                value={newWorker.email}
+                onChange={(event) =>
+                  setNewWorker({ ...newWorker, email: event.target.value })
+                }
+              />
+            </label>
+            <label>
+              Assignment role
+              <select
+                value={newWorker.role}
+                onChange={(event) =>
+                  setNewWorker({ ...newWorker, role: event.target.value })
+                }
+              >
+                <option>Leader</option>
+                <option>Technician</option>
+                <option>Helper</option>
+              </select>
+            </label>
+            <label>
+              Assign crew
+              <select
+                value={newWorker.crew}
+                onChange={(event) =>
+                  setNewWorker({ ...newWorker, crew: event.target.value })
+                }
+              >
+                {crewNames.map((crew) => (
+                  <option key={crew}>{crew}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Ward
+              <select
+                value={newWorker.ward}
+                onChange={(event) =>
+                  setNewWorker({ ...newWorker, ward: event.target.value })
+                }
+              >
+                {Object.keys(policy.wardAllowances).map((ward) => (
+                  <option key={ward}>{ward}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Worker status
+              <select
+                value={newWorker.status}
+                onChange={(event) =>
+                  setNewWorker({
+                    ...newWorker,
+                    status: event.target.value as CrewWorker["status"],
+                  })
+                }
+              >
+                <option>Available</option>
+                <option>Active</option>
+                <option>On leave</option>
+              </select>
+            </label>
+          </div>
+          <div className="button-row">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={saveWorker}
+              disabled={!newWorker.id || !newWorker.name}
+            >
+              Approve worker and issue credentials
+            </button>
+          </div>
+        </div>
+      ) : null}
+      <div className="crew-management-layout">
+        <div className="page-stack">
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Worker lookup</h2>
+                <span className="panel-note">
+                  Select an ID to reveal the worker report and role controls.
+                </span>
+              </div>
+              <Search size={18} color="#0f766e" />
+            </div>
+            <input
+              className="crew-worker-search"
+              value={workerQuery}
+              onChange={(event) => setWorkerQuery(event.target.value)}
+              placeholder="Search by worker ID, name or crew"
+            />
+            <div className="worker-search-results">
+              {matchingWorkers.map((worker) => (
+                <button
+                  type="button"
+                  className={`worker-result ${selectedWorkerId === worker.id ? "selected" : ""}`}
+                  key={worker.id}
+                  onClick={() => setSelectedWorkerId(worker.id)}
+                >
+                  <span>
+                    <strong>{worker.id}</strong>
+                    <small>
+                      {worker.name} · {worker.currentCrew}
+                    </small>
+                  </span>
+                  <span className="status-chip bg-slate-100 text-slate-700">
+                    {workerStatus(worker)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {selectedWorker ? (
+            <div className="panel worker-detail-panel">
+              <div className="panel-header">
+                <div>
+                  <h2>{selectedWorker.name}</h2>
+                  <span className="panel-note">
+                    {selectedWorker.id} ·{" "}
+                    {selectedWorker.officialEmail ??
+                      "Official email not recorded"}
+                  </span>
+                </div>
+                <span className="status-chip bg-emerald-100 text-emerald-700">
+                  {workerStatus(selectedWorker)}
+                </span>
+              </div>
+              <div className="worker-detail-grid">
+                <div>
+                  <span>Current crew</span>
+                  <select
+                    value={selectedWorker.currentCrew}
+                    onChange={(event) =>
+                      onAssignWorkers(event.target.value, [selectedWorker.id])
+                    }
+                  >
+                    {crewNames.map((crew) => (
+                      <option key={crew}>{crew}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <span>Ward</span>
+                  <strong>{selectedWorker.ward ?? "Not assigned"}</strong>
+                </div>
+                <div>
+                  <span>Phone number</span>
+                  <strong>{selectedWorker.phoneNumber ?? "Not recorded"}</strong>
+                </div>
+                <div>
+                  <span>Address</span>
+                  <strong>{selectedWorker.address ?? "Not recorded"}</strong>
+                </div>
+                <div>
+                  <span>Role</span>
+                  <select
+                    value={selectedWorker.role}
+                    onChange={(event) =>
+                      onUpdateWorker(selectedWorker.id, {
+                        role: event.target.value,
+                      })
+                    }
+                  >
+                    <option>Leader</option>
+                    <option>Technician</option>
+                    <option>Helper</option>
+                  </select>
+                </div>
+                <div>
+                  <span>Field-app access</span>
+                  <strong>
+                    {selectedWorker.loginStatus ?? "Credentials issued"}
+                  </strong>
+                </div>
+              </div>
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={downloadWorkerReport}
+                >
+                  <Download size={15} /> Download work report
+                </button>
+                <button
+                  type="button"
+                  className="btn-danger"
+                  onClick={() => onResetPassword(selectedWorker)}
+                >
+                  Reset password
+                </button>
+              </div>
+              <div className="toolbar report-period-toolbar">
+                {["week", "month", "3 months", "6 months", "custom"].map(
+                  (option) => (
+                    <button
+                      type="button"
+                      className={
+                        reportPeriod === option
+                          ? "btn-primary"
+                          : "btn-secondary"
+                      }
+                      key={option}
+                      onClick={() => setReportPeriod(option)}
+                    >
+                      {option === "3 months"
+                        ? "3-month"
+                        : option === "6 months"
+                          ? "6-month"
+                          : option.charAt(0).toUpperCase() + option.slice(1)}
+                    </button>
+                  ),
+                )}
+                {reportPeriod === "custom" ? (
+                  <>
+                    <input
+                      type="date"
+                      value={customStart}
+                      onChange={(event) => setCustomStart(event.target.value)}
+                    />
+                    <input
+                      type="date"
+                      value={customEnd}
+                      onChange={(event) => setCustomEnd(event.target.value)}
+                    />
+                  </>
+                ) : null}
+              </div>
+              <div className="worker-report-summary">
+                <strong>{workerReportRows.length} verified tasks</strong>
+                <strong>
+                  {workerReportRows
+                    .reduce((sum, allocation) => sum + allocation.credits, 0)
+                    .toFixed(2)}{" "}
+                  credits earned
+                </strong>
+                <span>
+                  Pending credits are excluded until evidence approval.
+                </span>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Work order</th>
+                      <th>Drain section</th>
+                      <th>Role at assignment</th>
+                      <th>Credits</th>
+                      <th>Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {workerReportRows.map((allocation) => {
+                      const pool = pools.find(
+                        (item) => item.id === allocation.poolId,
+                      );
+                      return (
+                        <tr key={allocation.id}>
+                          <td>{allocation.workOrderId}</td>
+                          <td>{pool?.drainId}</td>
+                          <td>{allocation.role}</td>
+                          <td>{allocation.credits.toFixed(2)}</td>
+                          <td>{formatDate(allocation.timestamp)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="panel empty-state">
+              <Award size={28} />
+              <h2>Select a worker to view their report</h2>
+              <p>
+                Worker-specific credits, tasks, current role and report download
+                appear here after selection.
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="page-stack">
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Ward credit allowances</h2>
+                <span className="panel-note">
+                  Configure reward and adjustment points by ward.
+                </span>
+              </div>
+              <Settings size={18} color="#0f766e" />
+            </div>
+            <input className="crew-worker-search" placeholder="Search ward" onChange={(event) => {
+              const query = event.target.value.toLowerCase();
+              document.querySelectorAll<HTMLElement>(".ward-policy-row").forEach((row) => {
+                row.hidden = !row.dataset.ward?.toLowerCase().includes(query);
+              });
+            }} />
+            <div className="ward-policy-list ward-policy-scroll">
+              {Object.keys(policy.wardAllowances).map((ward) => (
+                <button type="button" className="ward-policy-row" data-ward={ward} key={ward} onClick={() => {
+                  setSelectedWard(ward);
+                  setWardDraft(policy.wardAllowances[ward]);
+                  setEditingWard(false);
+                }}>
+                  <strong>{ward}</strong>
+                  <span>{policy.wardAllowances[ward].successfulCleaning} cleaning points · View policy</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {selectedWard && wardDraft ? (
+            <div className="modal-backdrop">
+              <div className="modal-card ward-policy-modal">
+                <div className="panel-header">
+                  <div><h2>{selectedWard} credit policy</h2><span className="panel-note">Successful completion allowances and related penalties.</span></div>
+                  <button type="button" className="btn-secondary" onClick={() => setSelectedWard(null)}>Close</button>
+                </div>
+                <div className="ward-policy-form">
+                  {([
+                    ["successfulCleaning", "Successful cleaning completion"],
+                    ["successfulInspection", "Successful inspection completion"],
+                    ["incompleteWorkPenalty", "Incomplete work penalty"],
+                    ["rejectedEvidencePenalty", "Rejected evidence penalty"],
+                    ["delayedWorkPenalty", "Delayed work penalty"],
+                  ] as [keyof WardAllowance, string][]).map(([key, label]) => (
+                    <label key={key}>{label}<input type="number" min="0" value={wardDraft[key]} disabled={!editingWard} onChange={(event) => setWardDraft({ ...wardDraft, [key]: Number(event.target.value) })} /></label>
+                  ))}
+                </div>
+                <div className="button-row">
+                  {!editingWard ? <button type="button" className="btn-primary" onClick={() => setEditingWard(true)}>Edit allowance</button> : <button type="button" className="btn-primary" onClick={() => { onPolicyChange({ ...policy, wardAllowances: { ...policy.wardAllowances, [selectedWard]: wardDraft } }); setEditingWard(false); }}>Save allowance changes</button>}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CrewCreditsPage({
+  workers,
+  reports,
+  pools,
+  allocations,
+  audits,
+  policy,
+  onPolicyChange,
+}: {
+  workers: CrewWorker[];
+  reports: ReportRecord[];
+  pools: CreditPool[];
+  allocations: CreditAllocation[];
+  audits: CreditAudit[];
+  policy: CreditPolicy;
+  onPolicyChange: (policy: CreditPolicy) => void;
+}) {
+  const [period, setPeriod] = useState("3 months");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [showPolicy, setShowPolicy] = useState(false);
+  const [reportNow] = useState(() => new Date());
+  const cutoff = new Date(reportNow);
+  if (period === "7 days") cutoff.setDate(cutoff.getDate() - 7);
+  if (period === "1 month") cutoff.setMonth(cutoff.getMonth() - 1);
+  if (period === "3 months") cutoff.setMonth(cutoff.getMonth() - 3);
+  if (period === "6 months") cutoff.setMonth(cutoff.getMonth() - 6);
+  const inRange = (timestamp: string) => {
+    const date = new Date(timestamp);
+    if (startDate && date < new Date(startDate)) return false;
+    if (endDate && date > new Date(`${endDate}T23:59:59`)) return false;
+    if (!startDate && !endDate && date < cutoff) return false;
+    return true;
+  };
+  const rangeAllocations = allocations.filter((allocation) =>
+    inRange(allocation.timestamp),
+  );
+  const rangePools = pools.filter((pool) => inRange(pool.createdAt));
+  const rosterCount = workers.length;
+  const delayedTasks = rangePools.filter(
+    (pool) => pool.onTime === false,
+  ).length;
+  const releasedCredits = rangePools
+    .filter((pool) => pool.status === "Released")
+    .reduce((sum, pool) => sum + pool.proposedCredits, 0);
+  const exportCredits = () => {
+    const rows = [
+      [
+        "Worker ID",
+        "Worker",
+        "Historical crew",
+        "Role",
+        "Work order",
+        "Drain section",
+        "Credits",
+        "Timestamp",
+      ],
+      ...rangeAllocations.map((allocation) => [
+        allocation.workerId,
+        allocation.workerName,
+        allocation.historicalCrew,
+        allocation.role,
+        allocation.workOrderId,
+        allocation.workOrderId.replace("WO-", ""),
+        allocation.credits,
+        allocation.timestamp,
+      ]),
+    ];
+    const csv = rows
+      .map((row) =>
+        row
+          .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+          .join(","),
+      )
+      .join("\n");
+    const url = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "drainrank-individual-credit-history.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const updatePolicy = (key: keyof CreditPolicy, value: number) =>
+    onPolicyChange({ ...policy, [key]: value });
+
+  return (
+    <div className="page-stack crew-management-page">
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>Crew Management</h2>
+            <p className="panel-note">
+              Work-outcome points are released only after authorised evidence
+              acceptance. Credits are not wages and have no monetary conversion.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setShowPolicy((visible) => !visible)}
+          >
+            <Settings size={15} />{" "}
+            {showPolicy ? "Hide policy" : "Configure policy"}
+          </button>
+        </div>
+        <div className="toolbar reports-filters">
+          {["7 days", "1 month", "3 months", "6 months"].map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={
+                period === option && !startDate && !endDate
+                  ? "btn-primary"
+                  : "btn-secondary"
+              }
+              onClick={() => {
+                setPeriod(option);
+                setStartDate("");
+                setEndDate("");
+              }}
+            >
+              {option}
+            </button>
+          ))}
+          <input
+            type="date"
+            value={startDate}
+            onChange={(event) => setStartDate(event.target.value)}
+            aria-label="Credit report start date"
+          />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(event) => setEndDate(event.target.value)}
+            aria-label="Credit report end date"
+          />
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={exportCredits}
+          >
+            <Download size={15} /> Export CSV
+          </button>
+        </div>
+        <div className="cards-grid three-col">
+          {[
+            ["Released points", releasedCredits.toFixed(0), "teal"],
+            [
+              "Verified work orders",
+              rangePools.filter((pool) => pool.status === "Released").length,
+              "teal",
+            ],
+            [
+              "Pending verification",
+              rangePools.filter(
+                (pool) => pool.status === "Pending verification",
+              ).length,
+              "amber",
+            ],
+            ["Delayed tasks", delayedTasks, delayedTasks ? "amber" : "teal"],
+          ].map(([label, value, accent]) => (
+            <div className={`metric-card ${accent}`} key={label}>
+              <span className="metric-label">{label}</span>
+              <span className="metric-value">{value}</span>
+            </div>
+          ))}
+        </div>
+        {showPolicy ? (
+          <div className="panel policy-editor">
+            <div className="panel-header">
+              <h2>Credit policy</h2>
+              <span className="panel-note">
+                Changes apply to future pools; released history is immutable.
+              </span>
+            </div>
+            <div className="form-grid">
+              <label>
+                Cleaning base points
+                <input
+                  type="number"
+                  min="0"
+                  value={policy.baseCleaning}
+                  onChange={(event) =>
+                    updatePolicy("baseCleaning", Number(event.target.value))
+                  }
+                />
+              </label>
+              <label>
+                Inspection base points
+                <input
+                  type="number"
+                  min="0"
+                  value={policy.baseInspection}
+                  onChange={(event) =>
+                    updatePolicy("baseInspection", Number(event.target.value))
+                  }
+                />
+              </label>
+              <label>
+                Complexity multiplier
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={policy.complexityMultiplier}
+                  onChange={(event) =>
+                    updatePolicy(
+                      "complexityMultiplier",
+                      Number(event.target.value),
+                    )
+                  }
+                />
+              </label>
+              <label>
+                Scope multiplier
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={policy.scopeMultiplier}
+                  onChange={(event) =>
+                    updatePolicy("scopeMultiplier", Number(event.target.value))
+                  }
+                />
+              </label>
+              <label>
+                Evidence multiplier
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={policy.evidenceMultiplier}
+                  onChange={(event) =>
+                    updatePolicy(
+                      "evidenceMultiplier",
+                      Number(event.target.value),
+                    )
+                  }
+                />
+              </label>
+            </div>
+            <div className="form-grid">
+              {Object.entries(policy.roleWeights).map(([role, weight]) => (
+                <label key={role}>
+                  {role} weight
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={weight}
+                    onChange={(event) =>
+                      onPolicyChange({
+                        ...policy,
+                        roleWeights: {
+                          ...policy.roleWeights,
+                          [role]: Number(event.target.value),
+                        },
+                      })
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+            <p className="panel-note">
+              Allocation uses the recorded roster and these role weights only.
+            </p>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>Individual work reports</h2>
+            <span className="panel-note">
+              Historical crew and role are captured at allocation time.
+            </span>
+          </div>
+          <span className="panel-note">
+            {rangeAllocations.length} allocation records · {rosterCount}{" "}
+            rostered workers
+          </span>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Worker ID</th>
+                <th>Historical crew / role</th>
+                <th>Work order</th>
+                <th>Drain section / reports</th>
+                <th>Review outcome</th>
+                <th>Credits</th>
+                <th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rangeAllocations.map((allocation) => {
+                const pool = pools.find(
+                  (item) => item.id === allocation.poolId,
+                );
+                return (
+                  <tr key={allocation.id}>
+                    <td>
+                      <strong>{allocation.workerId}</strong>
+                      <br />
+                      <span className="muted">{allocation.workerName}</span>
+                    </td>
+                    <td>
+                      {allocation.historicalCrew}
+                      <br />
+                      <span className="muted">{allocation.role}</span>
+                    </td>
+                    <td>{allocation.workOrderId}</td>
+                    <td>
+                      {pool?.drainId ?? "Not recorded"}
+                      <br />
+                      <span className="muted">
+                        {reports
+                          .filter((report) => report.drainId === pool?.drainId)
+                          .map((report) => report.id)
+                          .join(", ") || "No linked report"}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="status-chip bg-emerald-100 text-emerald-700">
+                        Accepted
+                      </span>
+                    </td>
+                    <td>
+                      <strong>{allocation.credits.toFixed(2)}</strong>
+                    </td>
+                    <td>{formatDate(allocation.timestamp)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {!rangeAllocations.length ? (
+            <div className="empty-state">
+              <Award size={24} />
+              <h2>No released credits in this period</h2>
+              <p>
+                Pending or rejected evidence never appears as final individual
+                credits.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>Credit pools and audit trail</h2>
+            <span className="panel-note">
+              Every pool, approval and adjustment is tied to a work order and
+              reviewer.
+            </span>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Pool / work order</th>
+                <th>Scope and evidence</th>
+                <th>Proposed points</th>
+                <th>Status</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rangePools.map((pool) => (
+                <tr key={pool.id}>
+                  <td>
+                    <strong>{pool.id}</strong>
+                    <br />
+                    <span className="muted">
+                      {pool.workOrderId} · {pool.drainId}
+                    </span>
+                  </td>
+                  <td>
+                    {pool.taskType} · {pool.complexity}
+                    <br />
+                    <span className="muted">
+                      {Math.round(pool.completedScope * 100)}% scope ·{" "}
+                      {Math.round(pool.evidenceQuality * 100)}% evidence ·{" "}
+                      {pool.onTime === false ? "Delayed" : "On deadline"}
+                    </span>
+                  </td>
+                  <td>{pool.proposedCredits}</td>
+                  <td>
+                    <span
+                      className={`status-chip ${pool.status === "Released" ? "bg-emerald-100 text-emerald-700" : pool.status === "Held" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}
+                    >
+                      {pool.status}
+                    </span>
+                  </td>
+                  <td>{pool.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="report-activity-list">
+          {audits
+            .filter((audit) => inRange(audit.timestamp))
+            .slice(0, 10)
+            .map((audit) => (
+              <div className="report-activity-row" key={audit.id}>
+                <ShieldCheck size={15} />
+                <div>
+                  <strong>
+                    {audit.action} · {audit.workOrderId}
+                  </strong>
+                  <p>{audit.reason}</p>
+                  <small>
+                    {audit.reviewer} · {formatDate(audit.timestamp)}
+                  </small>
+                </div>
+              </div>
+            ))}
+        </div>
+      </div>
+      <div className="panel-note">
+        Crew responsibility is evaluated through completed scope, verified
+        quality and deadline compliance. Operational field attendance remains
+        separate from this municipal credit record.
+      </div>
+    </div>
+  );
+}
+
+void CrewCreditsPage;
+
 function AdministrationPage({
   onReset,
   onClear,
@@ -4138,7 +5632,9 @@ function AdministrationPage({
   onClear: () => void;
 }) {
   const [accountName, setAccountName] = useState("Aarav Mehta");
-  const [accountEmail, setAccountEmail] = useState("aarav.mehta@municipal.gov.in");
+  const [accountEmail, setAccountEmail] = useState(
+    "aarav.mehta@municipal.gov.in",
+  );
   const [phone, setPhone] = useState("+91 98765 43210");
   const [notifications, setNotifications] = useState(true);
   const [digest, setDigest] = useState(true);
@@ -4150,7 +5646,8 @@ function AdministrationPage({
           <span className="eyebrow">Workspace settings</span>
           <h2>Administration</h2>
           <p className="panel-note">
-            Manage your municipal account, access roles, and workspace preferences.
+            Manage your municipal account, access roles, and workspace
+            preferences.
           </p>
         </div>
         <Settings size={24} color="#215B63" />
@@ -4161,25 +5658,37 @@ function AdministrationPage({
           <div className="settings-section-heading">
             <div>
               <h3>Account details</h3>
-              <p className="panel-note">Your profile used for municipal operations.</p>
+              <p className="panel-note">
+                Your profile used for municipal operations.
+              </p>
             </div>
             <UsersRound size={20} color="#215B63" />
           </div>
           <div className="settings-form-grid">
             <label>
               Full name
-              <input value={accountName} onChange={(event) => setAccountName(event.target.value)} />
+              <input
+                value={accountName}
+                onChange={(event) => setAccountName(event.target.value)}
+              />
             </label>
             <label>
               Official email
               <span className="settings-input-icon">
                 <Mail size={15} />
-                <input type="email" value={accountEmail} onChange={(event) => setAccountEmail(event.target.value)} />
+                <input
+                  type="email"
+                  value={accountEmail}
+                  onChange={(event) => setAccountEmail(event.target.value)}
+                />
               </span>
             </label>
             <label>
               Phone number
-              <input value={phone} onChange={(event) => setPhone(event.target.value)} />
+              <input
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+              />
             </label>
             <label>
               Current role
@@ -4188,7 +5697,10 @@ function AdministrationPage({
           </div>
           <div className="settings-inline-note">
             <ShieldCheck size={16} />
-            <span>Account verification and password management will be connected to the backend login service.</span>
+            <span>
+              Account verification and password management will be connected to
+              the backend login service.
+            </span>
           </div>
         </section>
 
@@ -4196,7 +5708,9 @@ function AdministrationPage({
           <div className="settings-section-heading">
             <div>
               <h3>Municipal workspace</h3>
-              <p className="panel-note">Operating scope and organisational defaults.</p>
+              <p className="panel-note">
+                Operating scope and organisational defaults.
+              </p>
             </div>
             <Building2 size={20} color="#215B63" />
           </div>
@@ -4233,32 +5747,63 @@ function AdministrationPage({
           <div className="settings-section-heading">
             <div>
               <h3>Municipal users and roles</h3>
-              <p className="panel-note">Review access responsibilities for the operations team.</p>
+              <p className="panel-note">
+                Review access responsibilities for the operations team.
+              </p>
             </div>
-            <button type="button" className="btn-secondary" disabled title="Available when user administration is connected to the backend">
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled
+              title="Available when user administration is connected to the backend"
+            >
               <UsersRound size={15} /> Add user
             </button>
           </div>
           <div className="user-role-table">
             <div className="user-role-row user-role-header">
-              <span>User</span><span>Department</span><span>Role</span><span>Access</span>
+              <span>User</span>
+              <span>Department</span>
+              <span>Role</span>
+              <span>Access</span>
             </div>
             <div className="user-role-row">
-              <span><strong>{accountName}</strong><small>{accountEmail}</small></span>
-              <span>Drainage Operations</span><span>Ward Officer</span><span className="status-chip success">Manage assigned ward</span>
+              <span>
+                <strong>{accountName}</strong>
+                <small>{accountEmail}</small>
+              </span>
+              <span>Drainage Operations</span>
+              <span>Ward Officer</span>
+              <span className="status-chip success">Manage assigned ward</span>
             </div>
             <div className="user-role-row">
-              <span><strong>Priya Sharma</strong><small>priya.sharma@municipal.gov.in</small></span>
-              <span>Field Inspection</span><span>Inspection Supervisor</span><span className="status-chip info">Inspection and evidence</span>
+              <span>
+                <strong>Priya Sharma</strong>
+                <small>priya.sharma@municipal.gov.in</small>
+              </span>
+              <span>Field Inspection</span>
+              <span>Inspection Supervisor</span>
+              <span className="status-chip info">Inspection and evidence</span>
             </div>
             <div className="user-role-row">
-              <span><strong>Rohan Verma</strong><small>rohan.verma@municipal.gov.in</small></span>
-              <span>Maintenance</span><span>Operations Manager</span><span className="status-chip warning">Queues and work orders</span>
+              <span>
+                <strong>Rohan Verma</strong>
+                <small>rohan.verma@municipal.gov.in</small>
+              </span>
+              <span>Maintenance</span>
+              <span>Operations Manager</span>
+              <span className="status-chip warning">
+                Queues and work orders
+              </span>
             </div>
           </div>
           <div className="role-permissions">
             <span className="label">Role permissions</span>
-            <span>Reports</span><span>Map</span><span>Queues</span><span>Evidence review</span><span>Administration</span>
+            <span>Reports</span>
+            <span>Map</span>
+            <span>Queues</span>
+            <span>Evidence review</span>
+            <span>Administration</span>
           </div>
         </section>
 
@@ -4266,17 +5811,33 @@ function AdministrationPage({
           <div className="settings-section-heading">
             <div>
               <h3>Notifications</h3>
-              <p className="panel-note">Choose which operational updates appear in your workspace.</p>
+              <p className="panel-note">
+                Choose which operational updates appear in your workspace.
+              </p>
             </div>
             <Bell size={20} color="#215B63" />
           </div>
           <label className="settings-toggle">
-            <span><strong>Priority changes</strong><small>Notify when an issue is escalated or reclassified.</small></span>
-            <input type="checkbox" checked={notifications} onChange={(event) => setNotifications(event.target.checked)} />
+            <span>
+              <strong>Priority changes</strong>
+              <small>Notify when an issue is escalated or reclassified.</small>
+            </span>
+            <input
+              type="checkbox"
+              checked={notifications}
+              onChange={(event) => setNotifications(event.target.checked)}
+            />
           </label>
           <label className="settings-toggle">
-            <span><strong>Daily operations summary</strong><small>Receive a summary of queues, reports, and evidence.</small></span>
-            <input type="checkbox" checked={digest} onChange={(event) => setDigest(event.target.checked)} />
+            <span>
+              <strong>Daily operations summary</strong>
+              <small>Receive a summary of queues, reports, and evidence.</small>
+            </span>
+            <input
+              type="checkbox"
+              checked={digest}
+              onChange={(event) => setDigest(event.target.checked)}
+            />
           </label>
         </section>
 
@@ -4289,23 +5850,48 @@ function AdministrationPage({
             <ShieldAlert size={20} color="#D97706" />
           </div>
           <div className="settings-actions">
-            <button type="button" className="btn-secondary" onClick={() => {
-              if (window.confirm("Reset all local records to the initial synthetic dataset?")) onReset();
-            }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Reset all local records to the initial synthetic dataset?",
+                  )
+                )
+                  onReset();
+              }}
+            >
               <RefreshCw size={16} /> Reset initial data
             </button>
-            <button type="button" className="btn-secondary alt" onClick={() => {
-              if (window.confirm("Clear all local data? This will restore the seeded scenario.")) onClear();
-            }}>
+            <button
+              type="button"
+              className="btn-secondary alt"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Clear all local data? This will restore the seeded scenario.",
+                  )
+                )
+                  onClear();
+              }}
+            >
               <Trash2 size={16} /> Clear local data
             </button>
           </div>
           <div className="settings-logout">
             <div>
               <strong>Sign out</strong>
-              <small>Logout will be enabled after backend authentication is added.</small>
+              <small>
+                Logout will be enabled after backend authentication is added.
+              </small>
             </div>
-            <button type="button" className="btn-secondary" disabled title="Login and logout will be connected to the backend">
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled
+              title="Login and logout will be connected to the backend"
+            >
               <LogOut size={16} /> Logout
             </button>
           </div>
