@@ -37,6 +37,7 @@ import {
   AlertTriangle,
   Award,
   Bell,
+  BrainCircuit,
   Building2,
   CheckCheck,
   ClipboardCheck,
@@ -62,6 +63,8 @@ import {
 } from "lucide-react";
 import { createSeedData } from "./data";
 import { localDataProvider } from "./dataProvider";
+import GlobalDrainAssistant from "./GlobalDrainAssistant";
+import MonitoringIntelligencePage from "./MonitoringIntelligencePage";
 
 export type DrainStatus =
   | "Cleaning Recommended"
@@ -287,7 +290,7 @@ const navItems = [
   { label: "Work Queues", path: "/queues", icon: ClipboardCheck },
   { label: "Work Orders", path: "/work-orders", icon: ClipboardList },
   { label: "Evidence Review", path: "/evidence", icon: ShieldCheck },
-  { label: "Outcome Intelligence", path: "/outcomes", icon: Bell },
+  { label: "Drain Intelligence", path: "/monitoring", icon: BrainCircuit },
   { label: "Reports", path: "/reports", icon: Download },
   { label: "Crew Management", path: "/crew-management", icon: Award },
   { label: "Logs", path: "/logs", icon: ClipboardList },
@@ -1143,6 +1146,50 @@ function DrainRankApp() {
     "All",
     ...new Set(appState.drains.map((drain) => drain.ward)),
   ];
+  const intelligenceDrains = appState.drains.map(
+    ({
+      id,
+      location,
+      ward,
+      status,
+      priority,
+      condition,
+      evidenceStatus,
+      lastObservation,
+      issueType,
+      deadlineAt,
+      visibleBlockage,
+    }) => ({
+      id,
+      location,
+      ward,
+      status,
+      priority,
+      condition,
+      evidenceStatus,
+      lastObservation,
+      issueType,
+      deadlineAt,
+      visibleBlockage,
+    }),
+  );
+  const intelligenceReports = appState.reports.map(
+    ({ drainId, issueType, status, priority, submittedAt }) => ({
+      drainId,
+      issueType,
+      status,
+      priority,
+      submittedAt,
+    }),
+  );
+  const intelligenceOutcomes = appState.outcomes.map(
+    ({ drainId, outcome, recommendation, timestamp }) => ({
+      drainId,
+      outcome,
+      recommendation,
+      timestamp,
+    }),
+  );
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -1294,7 +1341,25 @@ function DrainRankApp() {
 
           <Route
             path="/monitoring"
-            element={<Navigate to="/work-orders" replace />}
+            element={
+              <MonitoringIntelligencePage
+                drains={intelligenceDrains}
+                reports={intelligenceReports}
+                outcomes={intelligenceOutcomes}
+                onStatusChange={(drainId, status) => {
+                  updateDrainById(drainId, {
+                    status,
+                    lastUpdated: new Date().toISOString(),
+                  });
+                  addActivity(
+                    "Drain status updated",
+                    `${drainId} status changed to ${status} from the monitoring intelligence page.`,
+                    "info",
+                  );
+                  setToast(`${drainId} status updated.`);
+                }}
+              />
+            }
           />
 
           <Route
@@ -1413,6 +1478,11 @@ function DrainRankApp() {
         </Routes>
       </main>
 
+      <GlobalDrainAssistant
+        drains={intelligenceDrains}
+        reports={intelligenceReports}
+        outcomes={intelligenceOutcomes}
+      />
       {toast ? <div className="toast">{toast}</div> : null}
     </div>
   );
