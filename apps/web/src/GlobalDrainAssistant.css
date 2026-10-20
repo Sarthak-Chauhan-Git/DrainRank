@@ -63,6 +63,11 @@
   color: #7a8d94;
   font-size: 0.68rem;
 }
+.global-assistant-header > div > small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .global-assistant-header button {
   display: grid;
   width: 32px;
@@ -94,6 +99,32 @@
   background: #fbfdfd;
   font-size: 0.75rem;
   line-height: 1.55;
+}
+.global-assistant-message.assistant {
+  white-space: normal;
+}
+.global-assistant-heading {
+  margin: 4px 0 3px;
+  color: #254858;
+  font-size: 0.78rem;
+}
+.global-assistant-heading:first-child {
+  margin-top: 0;
+}
+.global-assistant-line {
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+.global-assistant-line.is-list-item {
+  padding-left: 12px;
+}
+.global-assistant-line.is-list-item::before {
+  content: "•";
+  display: inline-block;
+  width: 12px;
+  margin-left: -12px;
+  color: #14806d;
+  font-weight: 800;
 }
 .global-assistant-message.user {
   align-self: flex-end;
