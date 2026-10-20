@@ -60,6 +60,152 @@ export interface DrainIntelligenceSnapshot {
 const terminalStatuses = new Set(["Resolved", "Reviewed"]);
 const reviewEvidencePattern = /awaiting|pending|rework|mismatch|insufficient/i;
 
+function normalizeRecommendation(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\b(the|a|an|for|to|and|at|in|after|during|with)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function recommendationIntent(value: string) {
+  const text = value.toLowerCase();
+  if (/downstream|connected drain|network capacity/.test(text)) return "network-check";
+  if (/manual evidence review|completion evidence|approval|review evidence/.test(text)) {
+    return "evidence-review";
+  }
+  if (/location-verifiable|evidence gap|verification visit|field observation/.test(text)) {
+    return "evidence-capture";
+  }
+  if (/reschedul|revised visit|overdue|deadline/.test(text)) return "reschedule";
+  if (/clean|debris|silt|inlet|obstruction/.test(text)) return "surface-clean";
+  if (/rainfall|post-rain|after rainfall|rain event/.test(text)) return "rainfall-check";
+  if (/flow|water depth|recession time/.test(text)) return "flow-check";
+  if (/inspect|inspection|field visit/.test(text)) return "field-inspection";
+  if (/monitor|routine spot check|scheduled check/.test(text)) return "routine-monitoring";
+  return null;
+}
+
+function isRepeatedRecommendation(candidate: string, previous: string[]) {
+  const candidateIntent = recommendationIntent(candidate);
+  const candidateTokens = new Set(normalizeRecommendation(candidate).split(" "));
+  if (!candidateTokens.size) return false;
+  return previous.some((recommendation) => {
+    const previousIntent = recommendationIntent(recommendation);
+    if (candidateIntent && candidateIntent === previousIntent) return true;
+    const previousTokens = new Set(
+      normalizeRecommendation(recommendation).split(" "),
+    );
+    const intersection = [...candidateTokens].filter((token) =>
+      previousTokens.has(token),
+    ).length;
+    const union = new Set([...candidateTokens, ...previousTokens]).size;
+    return union > 0 && intersection / union >= 0.5;
+  });
+}
+
+function buildNextAction(
+  drain: DrainIntelligenceInput,
+  facts: {
+    overdue: boolean;
+    awaitingReview: boolean;
+    evidenceNeedsAttention: boolean;
+    recurring: boolean;
+    persistedOutcomes: number;
+    complaintCount: number;
+  },
+  previousRecommendations: string[],
+): string {
+  const location = drain.location;
+  const candidates: string[] = [];
+
+  if (facts.overdue) {
+    candidates.push(
+      `Confirm the responsible field team and agree a revised visit date for ${location}; keep the case flagged overdue until the inspection or cleaning result is recorded.`,
+      `Contact the ward operations lead to reschedule the overdue ${drain.issueType.toLowerCase()} work at ${location}, then update its deadline after the team confirms availability.`,
+    );
+  } else if (facts.awaitingReview) {
+    candidates.push(
+      `Complete the pending manual evidence review for ${location}; verify the location and work result before changing the status.`,
+      `Compare the submitted completion evidence with the recorded drain location at ${location}, then record an approval or correction request.`,
+    );
+  } else if (drain.status === "Assigned") {
+    candidates.push(
+      `Check the assigned work progress at ${location} against its deadline and record the next field update; escalate only if the deadline is at risk.`,
+      `Confirm whether the scheduled ${drain.issueType.toLowerCase()} visit at ${location} is underway, then update the case status from the field result.`,
+    );
+  } else if (
+    facts.persistedOutcomes > 0 &&
+    (drain.visibleBlockage == null || drain.visibleBlockage < 80)
+  ) {
+    candidates.push(
+      `Because earlier work did not prevent recurrence at ${location}, inspect the nearest downstream connection and record flow before scheduling another clean.`,
+      `Trace the connected drain section beyond ${location} during a field visit; compare the observation with the last persistent outcome before repeating surface cleaning.`,
+    );
+  } else if (facts.evidenceNeedsAttention) {
+    candidates.push(
+      `Request a new location-verifiable field observation for ${location} before changing its status; include a clear view of the affected drain section.`,
+      `Arrange a short verification visit at ${location} to resolve the evidence gap, then update the case using the observed condition.`,
+    );
+  } else if (drain.status === "Cleaning Recommended") {
+    if (drain.visibleBlockage != null && drain.visibleBlockage >= 80) {
+      candidates.push(
+        `Schedule a targeted inlet clean at ${location}; record a post-clean flow check before closing the work.`,
+        `Assign the blocked section at ${location} for debris removal, then compare a clear follow-up observation with the current blockage record.`,
+      );
+    } else if (drain.visibleBlockage != null && drain.visibleBlockage >= 40) {
+      candidates.push(
+        `Inspect and clear the restricted inlet at ${location}; record whether water flow improves before closing the task.`,
+        `Check for removable silt or debris at ${location}, then update the blockage estimate from a fresh field observation.`,
+      );
+    } else {
+      candidates.push(
+        `Verify the reported restriction at ${location} during a field visit; clean only the obstruction confirmed on site.`,
+        `Check inlet flow at ${location} before dispatching a full clean, then record the observed blockage and any immediate maintenance completed.`,
+      );
+    }
+  } else if (drain.issueType.toLowerCase().includes("waterlog")) {
+    candidates.push(
+      `Observe water flow at ${location} during or just after rainfall; if the drain is clear, trace the nearest downstream connection before ordering cleaning.`,
+      `At the next safe rainfall check, record water depth and recession time at ${location}; use that observation to decide whether a downstream inspection is needed.`,
+    );
+  } else if (facts.recurring || facts.persistedOutcomes > 0) {
+    candidates.push(
+      `Compare the next post-rain observation at ${location} with its ${facts.complaintCount} linked complaints; inspect the connected downstream section if waterlogging returns.`,
+      `Schedule one follow-up check at ${location} after rainfall and record whether the same issue recurs before widening the maintenance scope.`,
+    );
+  } else if (drain.status === "Inspection Required") {
+    candidates.push(
+      `Assign a field inspection at ${location} to measure visible blockage and confirm flow; update the case from the observed condition.`,
+      `Verify the affected drain section at ${location} and record a dated condition estimate before deciding between cleaning and monitoring.`,
+    );
+  } else if (drain.status === "Monitoring" || drain.status === "Reviewed") {
+    candidates.push(
+      `Keep ${location} on routine monitoring and record a targeted check after the next rainfall; reopen work only if the issue is observed again.`,
+      `At the next scheduled ward inspection, verify flow at ${location} and compare it with the latest observation before changing its status.`,
+    );
+  } else if (drain.status === "Resolved") {
+    candidates.push(
+      `Confirm the next routine observation at ${location}; reopen the case only if the same drainage issue is seen again.`,
+      `Add ${location} to the next scheduled inspection round and verify the resolved condition remains clear.`,
+    );
+  } else {
+    candidates.push(
+      `Review the latest field condition at ${location} and assign the smallest follow-up task supported by that observation.`,
+      `Confirm the current condition at ${location} with a field check, then route the case to cleaning or routine monitoring based on evidence.`,
+    );
+  }
+
+  const newAction = candidates.find(
+    (candidate) =>
+      !isRepeatedRecommendation(candidate, previousRecommendations),
+  );
+  if (newAction) return newAction;
+
+  return `At ${location}, perform a fresh condition check and record the observed result before selecting a follow-up action; the recent recommendation history already covers the other proposed steps.`;
+}
+
 export function analyzeDrainRecords(
   drains: readonly DrainIntelligenceInput[],
   reports: readonly DrainHistoryInput[],
@@ -125,33 +271,18 @@ export function analyzeDrainRecords(
         explanation.push("No repeated issue is recorded in the available history.");
       }
 
-      let nextAction =
-        "Continue routine monitoring and record the next inspection outcome.";
-      if (overdue) {
-        nextAction =
-          "Escalate the overdue work item to the ward supervisor and confirm a revised field visit.";
-      } else if (awaitingReview) {
-        nextAction =
-          "Have an authorized reviewer verify location and before/after evidence before approving completion.";
-      } else if (persistedOutcomes > 0) {
-        nextAction =
-          "Inspect the connected downstream section and capture evidence during the next rainfall event.";
-      } else if (evidenceNeedsAttention) {
-        nextAction =
-          "Request clear, location-verifiable field evidence before changing the work status.";
-      } else if (
-        drain.status === "Cleaning Recommended" ||
-        drain.status === "Rework Required"
-      ) {
-        nextAction =
-          "Schedule cleaning, then require verifiable completion evidence for review.";
-      } else if (drain.status === "Inspection Required") {
-        nextAction =
-          "Assign a field inspection to verify blockage severity and update the evidence record.";
-      } else if (recurring) {
-        nextAction =
-          "Schedule a follow-up inspection and compare the next observation with this drain's history.";
-      }
+      const nextAction = buildNextAction(
+        drain,
+        {
+          overdue,
+          awaitingReview,
+          evidenceNeedsAttention,
+          recurring,
+          persistedOutcomes,
+          complaintCount: history.length,
+        },
+        priorOutcomes.map((outcome) => outcome.recommendation),
+      );
 
       return {
         drain,
