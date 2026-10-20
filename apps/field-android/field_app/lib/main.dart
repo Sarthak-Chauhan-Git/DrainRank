@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:camera/camera.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import 'dart:typed_data';
 import 'dart:math' as math;
 
@@ -198,9 +199,117 @@ class MunicipalCrewApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        inputDecorationTheme: const InputDecorationTheme(
-          border: OutlineInputBorder(),
+        scaffoldBackgroundColor: const Color(0xFFF8FAFC),
+        colorScheme: const ColorScheme.light(
+          primary: Color(0xFF0F766E),
+          onPrimary: Color(0xFFFFFFFF),
+          primaryContainer: Color(0xFFF0FDFA),
+          onPrimaryContainer: Color(0xFF0F172A),
+          secondary: Color(0xFF124170),
+          onSecondary: Color(0xFFFFFFFF),
+          secondaryContainer: Color(0xFFDCEBFA),
+          onSecondaryContainer: Color(0xFF1E3A5F),
+          tertiary: Color(0xFF67C090),
+          onTertiary: Color(0xFF0F172A),
+          tertiaryContainer: Color(0xFFEAF8EF),
+          onTertiaryContainer: Color(0xFF047857),
+          error: Color(0xFFB91C1C),
+          onError: Color(0xFFFFFFFF),
+          errorContainer: Color(0xFFFEE2E2),
+          onErrorContainer: Color(0xFF9F1239),
+          surface: Color(0xFFFFFFFF),
+          onSurface: Color(0xFF0F172A),
+          onSurfaceVariant: Color(0xFF475569),
+          outline: Color(0xFFB9DED3),
+          outlineVariant: Color(0xFFD7E5E7),
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFFFFFFFF),
+          foregroundColor: Color(0xFF0F172A),
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: true,
+          titleTextStyle: TextStyle(
+            color: Color(0xFF124170),
+            fontSize: 21,
+            fontWeight: FontWeight.w700,
+          ),
+          iconTheme: IconThemeData(color: Color(0xFF0F766E)),
+        ),
+        cardTheme: CardThemeData(
+          color: const Color(0xFFFFFFFF),
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: Color(0xFFD7E5E7)),
+          ),
+        ),
+        navigationBarTheme: const NavigationBarThemeData(
+          backgroundColor: Color(0xFFF0FDFA),
+          indicatorColor: Color(0xFFE8F8F1),
+          iconTheme: WidgetStatePropertyAll(
+            IconThemeData(color: Color(0xFF0F766E)),
+          ),
+          labelTextStyle: WidgetStatePropertyAll(
+            TextStyle(color: Color(0xFF334155), fontWeight: FontWeight.w600),
+          ),
+        ),
+        drawerTheme: const DrawerThemeData(
+          backgroundColor: Color(0xFFF3FAF6),
+          surfaceTintColor: Colors.transparent,
+        ),
+        listTileTheme: const ListTileThemeData(
+          iconColor: Color(0xFF0F766E),
+          textColor: Color(0xFF334155),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF0F766E),
+            foregroundColor: const Color(0xFFFFFFFF),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF0F766E),
+            side: const BorderSide(color: Color(0xFFB9DED3)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: const Color(0xFFFFFFFF),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFD7E5E7)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFD7E5E7)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF14B8A6), width: 1.6),
+          ),
+          labelStyle: const TextStyle(color: Color(0xFF1E3A5F)),
+          hintStyle: const TextStyle(color: Color(0xFF64748B)),
+        ),
+        chipTheme: ChipThemeData(
+          backgroundColor: const Color(0xFFF0FDFA),
+          selectedColor: const Color(0xFFE8F8F1),
+          side: const BorderSide(color: Color(0xFFB9DED3)),
+          labelStyle: const TextStyle(color: Color(0xFF1E3A5F)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+        dividerColor: const Color(0xFFE7EEF0),
+        textTheme: const TextTheme(
+          headlineSmall: TextStyle(color: Color(0xFF124170), fontWeight: FontWeight.w700),
+          titleLarge: TextStyle(color: Color(0xFF124170), fontWeight: FontWeight.w700),
+          titleMedium: TextStyle(color: Color(0xFF1E3A5F), fontWeight: FontWeight.w600),
+          bodyLarge: TextStyle(color: Color(0xFF334155)),
+          bodyMedium: TextStyle(color: Color(0xFF334155)),
+          bodySmall: TextStyle(color: Color(0xFF64748B)),
         ),
       ),
       home: const AuthGate(),
@@ -380,7 +489,7 @@ class _CrewLoginPageState extends State<CrewLoginPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Icon(Icons.location_city_rounded,
-                        size: 82, color: Colors.deepPurple),
+                        size: 82, color: const Color(0xFF0F766E)),
                     const SizedBox(height: 22),
                     Text(
                       _adminLogin ? 'Municipal Board Admin Login' : 'Municipal Crew Login',
@@ -536,7 +645,7 @@ class AdminDashboardPage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Icon(Icons.admin_panel_settings_outlined,
-                        size: 72, color: Colors.deepPurple),
+                        size: 72, color: const Color(0xFF0F766E)),
                     const SizedBox(height: 16),
                     const Text('Administrator Dashboard',
                         textAlign: TextAlign.center,
@@ -637,9 +746,31 @@ class AdminCreditReviewPage extends StatelessWidget {
     }
   }
 
+  Future<void> _applyOverdueDeductions(BuildContext context) async {
+    try {
+      final count = await processOverdueDeductionsForAdmin(adminUid);
+      if (context.mounted) {
+        showAppMessage(context, count == 0
+            ? 'No new overdue deductions were needed.'
+            : 'Applied $count overdue daily deduction(s).');
+      }
+    } catch (e) {
+      if (context.mounted) showAppMessage(context, 'Could not process overdue deductions: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Review Work & Credits')),
+    appBar: AppBar(
+      title: const Text('Review Work & Credits'),
+      actions: [
+        IconButton(
+          tooltip: 'Process overdue deductions',
+          onPressed: () => _applyOverdueDeductions(context),
+          icon: const Icon(Icons.trending_down),
+        ),
+      ],
+    ),
     body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance.collection('tasks').snapshots(),
       builder: (context, snapshot) {
@@ -653,6 +784,12 @@ class AdminCreditReviewPage extends StatelessWidget {
               title: Text((task.data()['title'] ?? 'Task').toString()),
               subtitle: Text((task.data()['dateKey'] ?? '').toString()),
               children: [
+                _DailyOverdueRateEditor(
+                  taskReference: task.reference,
+                  initialRate: task.data()['dailyOverdueDeduction'] is int
+                      ? task.data()['dailyOverdueDeduction'] as int
+                      : 0,
+                ),
                 for (final uid in (task.data()['assignedToUid'] is List
                     ? (task.data()['assignedToUid'] as List).whereType<String>()
                     : <String>[]))
@@ -678,7 +815,7 @@ class AdminCreditReviewPage extends StatelessWidget {
                             subtitle: Text(granted ? 'Credits approved' :
                             hasEvidence ? '${proof.data!.docs.length} work photo(s) submitted' :
                             'No work submitted'),
-                            trailing: granted ? const Icon(Icons.check_circle, color: Colors.green) :
+                            trailing: granted ? const Icon(Icons.check_circle, color: const Color(0xFF059669)) :
                             TextButton(onPressed: hasEvidence ?
                                 () => _approve(context, task.id, uid,
                                 (task.data()['title'] ?? 'Task').toString()) : null,
@@ -693,6 +830,86 @@ class AdminCreditReviewPage extends StatelessWidget {
           },
         );
       },
+    ),
+  );
+}
+
+class _DailyOverdueRateEditor extends StatefulWidget {
+  const _DailyOverdueRateEditor({
+    required this.taskReference,
+    required this.initialRate,
+  });
+
+  final DocumentReference<Map<String, dynamic>> taskReference;
+  final int initialRate;
+
+  @override
+  State<_DailyOverdueRateEditor> createState() => _DailyOverdueRateEditorState();
+}
+
+class _DailyOverdueRateEditorState extends State<_DailyOverdueRateEditor> {
+  late final TextEditingController _controller;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialRate.toString());
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveRate() async {
+    final rate = int.tryParse(_controller.text.trim());
+    if (rate == null || rate < 0 || rate > 1000) {
+      showAppMessage(context, 'Enter a daily deduction from 0 to 1000 credits.');
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      await widget.taskReference.update({'dailyOverdueDeduction': rate});
+      if (mounted) showAppMessage(context, rate == 0
+          ? 'Daily overdue deduction disabled for this task.'
+          : 'Daily overdue deduction set to $rate credits.');
+    } catch (e) {
+      if (mounted) showAppMessage(context, 'Could not save daily deduction: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Daily overdue deduction', style: TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        const Text('Set 0 to disable. The admin action applies each missing overdue day once.'),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: TextField(
+            controller: _controller,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Credits deducted per overdue day',
+              prefixIcon: Icon(Icons.trending_down),
+            ),
+          )),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: _saving ? null : _saveRate,
+            child: _saving
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('Save rate'),
+          ),
+        ]),
+      ],
     ),
   );
 }
@@ -778,7 +995,7 @@ class _AccessMessageScreen extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(Icons.gpp_bad_outlined,
-                      size: 76, color: Colors.deepPurple),
+                      size: 76, color: const Color(0xFF0F766E)),
                   const SizedBox(height: 20),
                   Text(title,
                       textAlign: TextAlign.center,
@@ -833,7 +1050,7 @@ class CrewCredits extends StatelessWidget {
           return sum + (amount is int ? amount : 0);
         });
         return Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.workspace_premium_outlined, color: Colors.amber.shade800),
+          Icon(Icons.workspace_premium_outlined, color: const Color(0xFFF59E0B)),
           const SizedBox(width: 8),
           Text('Current Credits: ${total ?? '...'}',
               style: compact ? Theme.of(context).textTheme.titleMedium :
@@ -1026,6 +1243,21 @@ class _CrewHomePageState extends State<CrewHomePage> {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.event_available_outlined),
+                title: const Text('Request Leave'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => RequestLeavePage(
+                        currentUserUid: widget.user.uid,
+                        crewName: _crewName,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.info_outline),
                 title: const Text('Info'),
                 onTap: () => _showDetails(
@@ -1111,7 +1343,8 @@ class _CrewHomePageState extends State<CrewHomePage> {
             );
           }
 
-          final filtered = (snapshot.data?.docs ?? [])
+          final allAssignedTasks = snapshot.data?.docs ?? [];
+          final filtered = allAssignedTasks
               .where((doc) => visibleKeys.contains(doc.data()['dateKey']))
               .toList();
           final byDate = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
@@ -1123,6 +1356,23 @@ class _CrewHomePageState extends State<CrewHomePage> {
             tasks.sort((a, b) => _timeInMinutes(a.data()['startTime']?.toString())
                 .compareTo(_timeInMinutes(b.data()['startTime']?.toString())));
           }
+
+          // The Today tab also includes earlier assignments for which this
+          // crew member has not submitted any work update yet.
+          final overdueTasks = _selectedTab == 1
+              ? allAssignedTasks.where((doc) {
+                  final day = _parseTaskDate(doc.data()['dateKey']);
+                  return day != null && day.isBefore(_todayOnly());
+                }).toList()
+              : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+          overdueTasks.sort((a, b) {
+            final dayA = _parseTaskDate(a.data()['dateKey'])!;
+            final dayB = _parseTaskDate(b.data()['dateKey'])!;
+            final byDay = dayA.compareTo(dayB); // oldest overdue task first
+            if (byDay != 0) return byDay;
+            return _timeInMinutes(a.data()['startTime']?.toString())
+                .compareTo(_timeInMinutes(b.data()['startTime']?.toString()));
+          });
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
@@ -1145,7 +1395,7 @@ class _CrewHomePageState extends State<CrewHomePage> {
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 20),
-              if (filtered.isEmpty)
+              if (filtered.isEmpty && _selectedTab != 1)
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(28),
@@ -1159,34 +1409,83 @@ class _CrewHomePageState extends State<CrewHomePage> {
                       ],
                     ),
                   ),
-                )
-              else
-                for (final date in visibleDays)
-                  if (byDate[_dateKey(date)]?.isNotEmpty == true) ...[
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(4, 12, 4, 10),
-                      child: Text(
-                        _prettyDate(date),
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                ),
+              if (filtered.isEmpty && _selectedTab == 1)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Text('No tasks assigned for today.', textAlign: TextAlign.center),
+                  ),
+                ),
+              for (final date in visibleDays)
+                if (byDate[_dateKey(date)]?.isNotEmpty == true) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 12, 4, 10),
+                    child: Text(
+                      _prettyDate(date),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  for (var i = 0; i < byDate[_dateKey(date)]!.length; i++)
+                    _DrainTaskCard(
+                      data: byDate[_dateKey(date)]![i].data(),
+                      number: i + 1,
+                      taskId: byDate[_dateKey(date)]![i].id,
+                      currentUserUid: widget.user.uid,
+                      showCredits: true,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => TaskDetailsPage(
+                            taskId: byDate[_dateKey(date)]![i].id,
+                            currentUserUid: widget.user.uid,
+                          ),
+                        ),
                       ),
                     ),
-                    for (var i = 0; i < byDate[_dateKey(date)]!.length; i++)
-                      _DrainTaskCard(
-                        data: byDate[_dateKey(date)]![i].data(),
-                        number: i + 1,
-                        taskId: byDate[_dateKey(date)]![i].id,
+                ],
+              if (_selectedTab == 1) ...[
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(4, 18, 4, 10),
+                  child: Text('Overdue Tasks',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ),
+                if (overdueTasks.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text('No overdue tasks.', textAlign: TextAlign.center),
+                  ),
+                for (final overdueTask in overdueTasks)
+                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: overdueTask.reference
+                        .collection('workUpdates')
+                        .where('submittedByUid', isEqualTo: widget.user.uid)
+                        .limit(1)
+                        .snapshots(),
+                    builder: (context, workSnapshot) {
+                      // Hide overdue work once this member has submitted it.
+                      if (!workSnapshot.hasData || workSnapshot.hasError ||
+                          workSnapshot.data!.docs.isNotEmpty) {
+                        return const SizedBox.shrink();
+                      }
+                      return _DrainTaskCard(
+                        data: overdueTask.data(),
+                        number: 0,
+                        taskId: overdueTask.id,
                         currentUserUid: widget.user.uid,
-                        showCredits: _selectedTab == 0,
+                        showCredits: true,
+                        isOverdue: true,
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) => TaskDetailsPage(
-                              taskId: byDate[_dateKey(date)]![i].id,
+                              taskId: overdueTask.id,
                               currentUserUid: widget.user.uid,
                             ),
                           ),
                         ),
-                      ),
-                  ],
+                      );
+                    },
+                  ),
+              ],
             ],
           );
         },
@@ -1208,10 +1507,22 @@ class CrewActivityPage extends StatefulWidget {
   State<CrewActivityPage> createState() => _CrewActivityPageState();
 }
 
+class _ActivitySubmissionInfo {
+  const _ActivitySubmissionInfo({
+    required this.submitted,
+    required this.submittedOverdue,
+    this.submittedAt,
+  });
+
+  final bool submitted;
+  final bool submittedOverdue;
+  final Timestamp? submittedAt;
+}
+
 class _CrewActivityPageState extends State<CrewActivityPage> {
   int _months = 1;
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _assignedTasks;
-  Future<List<bool>>? _submissionFuture;
+  Future<List<_ActivitySubmissionInfo>>? _submissionFuture;
   String? _submissionKey;
 
   @override
@@ -1242,16 +1553,26 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
     return null;
   }
 
-  Future<List<bool>> _loadSubmissions(
+  Future<List<_ActivitySubmissionInfo>> _loadSubmissions(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
       ) async {
     return Future.wait(docs.map((doc) async {
       final result = await doc.reference
           .collection('workUpdates')
           .where('submittedByUid', isEqualTo: widget.currentUserUid)
-          .limit(1)
           .get();
-      return result.docs.isNotEmpty;
+      final overdueDocs = result.docs.where(
+        (update) => update.data()['submittedOverdue'] == true,
+      ).toList();
+      final chosen = overdueDocs.isNotEmpty
+          ? overdueDocs.first
+          : (result.docs.isNotEmpty ? result.docs.first : null);
+      final submittedAtRaw = chosen?.data()['submittedAt'];
+      return _ActivitySubmissionInfo(
+        submitted: result.docs.isNotEmpty,
+        submittedOverdue: overdueDocs.isNotEmpty,
+        submittedAt: submittedAtRaw is Timestamp ? submittedAtRaw : null,
+      );
     }));
   }
 
@@ -1278,6 +1599,8 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
           }
           final awards = awardsSnapshot.data?.docs ?? [];
           final creditsByTask = <String, int>{};
+          final positiveAwardTasks = <String>{};
+          final penaltyByTask = <String, int>{};
           var periodCredits = 0;
           final now = DateTime.now();
           final earliestAward = _earliestDay(DateTime(now.year, now.month, now.day));
@@ -1286,13 +1609,26 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
             final value = data['credits'];
             final granted = data['approvedAt'];
             if (value is! int || granted is! Timestamp) continue;
-            final grantDate = granted.toDate();
+            // Penalties belong to the actual overdue date, even if an admin
+            // processes the ledger later. Positive awards use approval date.
+            DateTime grantDate;
+            if (data['type'] == 'overduePenalty' && data['penaltyDate'] is String) {
+              grantDate = DateTime.tryParse(data['penaltyDate'] as String) ?? granted.toDate();
+            } else {
+              grantDate = granted.toDate();
+            }
             final grantedDay = DateTime(grantDate.year, grantDate.month, grantDate.day);
             if (!grantedDay.isBefore(earliestAward) &&
                 !grantedDay.isAfter(DateTime(now.year, now.month, now.day))) {
               periodCredits += value;
             }
-            creditsByTask[award.id] = value;
+            final taskId = (data['taskId'] ?? award.id).toString();
+            creditsByTask.update(taskId, (current) => current + value, ifAbsent: () => value);
+            if (data['type'] == 'overduePenalty' || value < 0) {
+              penaltyByTask.update(taskId, (current) => current + value, ifAbsent: () => value);
+            } else if (value > 0) {
+              positiveAwardTasks.add(taskId);
+            }
           }
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _assignedTasks,
@@ -1325,7 +1661,7 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                 _submissionKey = key;
                 _submissionFuture = _loadSubmissions(docs);
               }
-              return FutureBuilder<List<bool>>(
+              return FutureBuilder<List<_ActivitySubmissionInfo>>(
                 future: _submissionFuture,
                 builder: (context, updates) {
                   if (updates.hasError) {
@@ -1368,12 +1704,12 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                               label: 'Submitted',
                               count: flags == null
                                   ? null
-                                  : flags.where((value) => value).length,
+                                  : flags.where((value) => value.submitted).length,
                               icon: Icons.task_alt,
                             )),
                             const SizedBox(width: 10),
                             Expanded(child: _ActivitySummaryCard(
-                              label: 'Credits earned',
+                              label: 'Net credits',
                               count: awardsSnapshot.hasData ? periodCredits : null,
                               icon: Icons.workspace_premium_outlined,
                             )),
@@ -1396,78 +1732,119 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                           final doc = docs[index];
                           final task = doc.data();
                           final day = _taskDay(task)!;
-                          final submitted = flags[index];
+                          final submission = flags[index];
+                          final submitted = submission.submitted;
+                          final isPastDate = DateTime(day.year, day.month, day.day)
+                              .isBefore(todayOnly);
+                          final hasAward = positiveAwardTasks.contains(doc.id);
+                          final penalty = penaltyByTask[doc.id] ?? 0;
+                          final taskCredits = creditsByTask[doc.id] ?? 0;
+                          final approvalLabel = hasAward
+                              ? 'Approved'
+                              : submitted ? 'Awaiting approval' : penalty < 0 ? 'Penalty applied' : 'Pending';
+                          final statusTextStyle = Theme.of(context).textTheme.bodyMedium;
                           return Card(
                             margin: const EdgeInsets.only(bottom: 10),
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              title: Text((task['title'] ?? 'Assigned task').toString(),
-                                  style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const SizedBox(height: 4),
-                                  Text(_prettyDate(day)),
-                                  Text(_taskTime(task)),
-                                  Text('Shared status: ${task['status'] ?? 'Pending'}'),
-                                  const SizedBox(height: 10),
-                                  // Approval and task-specific credits stay on
-                                  // the same line, as in the Activity design.
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          creditsByTask.containsKey(doc.id)
-                                              ? 'Approved'
-                                              : submitted
-                                                  ? 'Awaiting approval'
-                                                  : 'Pending',
-                                          style: TextStyle(
-                                            color: creditsByTask.containsKey(doc.id)
-                                                ? Colors.green
-                                                : Theme.of(context).colorScheme.onSurfaceVariant,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Icon(
-                                        creditsByTask.containsKey(doc.id)
-                                            ? Icons.workspace_premium_outlined
-                                            : Icons.schedule_outlined,
-                                        size: 20,
-                                        color: creditsByTask.containsKey(doc.id)
-                                            ? Colors.amber.shade800
-                                            : Theme.of(context).colorScheme.onSurfaceVariant,
-                                      ),
-                                      const SizedBox(width: 5),
-                                      Text(
-                                        creditsByTask.containsKey(doc.id)
-                                            ? '+${creditsByTask[doc.id]} credits'
-                                            : '0 credits',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 15,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    submitted
-                                        ? 'Your work update: Submitted'
-                                        : 'Your work update: Pending',
-                                    style: Theme.of(context).textTheme.bodySmall,
-                                  ),
-                                ],
-                              ),
-                              trailing: const Icon(Icons.chevron_right),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(builder: (_) => TaskDetailsPage(
                                   taskId: doc.id,
                                   currentUserUid: widget.currentUserUid,
                                 )),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Use the full card width so the time's right edge
+                                    // lines up with the approval label below it.
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            (task['title'] ?? 'Assigned task').toString(),
+                                            style: const TextStyle(fontWeight: FontWeight.w600),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        ConstrainedBox(
+                                          constraints: const BoxConstraints(maxWidth: 155),
+                                          child: Text(
+                                            _taskTime(task),
+                                            textAlign: TextAlign.right,
+                                            style: Theme.of(context).textTheme.bodySmall,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(_prettyDate(day), style: statusTextStyle),
+                                    if (submission.submittedOverdue) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Overdue · Submitted${submission.submittedAt == null ? '' : ' ${_prettyDate(submission.submittedAt!.toDate())}'}',
+                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                          color: const Color(0xFFD97706),
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Shared status: ${task['status'] ?? 'Pending'}',
+                                      style: statusTextStyle,
+                                    ),
+                                    // Omit the redundant personal-update status for
+                                    // past dates. On today's task use the same font as
+                                    // the shared status for consistency.
+                                    if (!isPastDate)
+                                      Text(
+                                        submitted
+                                            ? 'Your work update: Submitted'
+                                            : 'Your work update: Pending',
+                                        style: statusTextStyle,
+                                      ),
+                                    const SizedBox(height: 10),
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            if (hasAward) Row(children: [
+                                              Icon(Icons.workspace_premium_outlined, size: 18, color: const Color(0xFFF59E0B)),
+                                              const SizedBox(width: 5),
+                                              Text('+${creditsByTask[doc.id] != null && penalty < 0 ? taskCredits - penalty : taskCredits} credits',
+                                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                                            ]),
+                                            if (penalty < 0) Row(children: [
+                                              Icon(Icons.trending_down, size: 18, color: const Color(0xFFB91C1C)),
+                                              const SizedBox(width: 5),
+                                              Text('$penalty credits', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: const Color(0xFFB91C1C))),
+                                            ]),
+                                            if (!hasAward && penalty == 0) Row(children: [
+                                              Icon(Icons.schedule_outlined, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                              const SizedBox(width: 5),
+                                              const Text('0 credits', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                                            ]),
+                                          ],
+                                        )),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          approvalLabel,
+                                          textAlign: TextAlign.right,
+                                          style: TextStyle(
+                                            color: hasAward ? const Color(0xFF059669) : penalty < 0 ? const Color(0xFFB91C1C)
+                                                : Theme.of(context).colorScheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           );
@@ -1686,6 +2063,7 @@ class _DrainTaskCard extends StatelessWidget {
     this.taskId,
     this.currentUserUid,
     this.showCredits = false,
+    this.isOverdue = false,
   });
 
   final Map<String, dynamic> data;
@@ -1694,6 +2072,7 @@ class _DrainTaskCard extends StatelessWidget {
   final String? taskId;
   final String? currentUserUid;
   final bool showCredits;
+  final bool isOverdue;
 
   @override
   Widget build(BuildContext context) {
@@ -1716,6 +2095,23 @@ class _DrainTaskCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(time, style: Theme.of(context).textTheme.bodySmall),
+            if (isOverdue)
+              Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(
+                    'OVERDUE · Assigned ${_taskDateLabel(data['dateKey'])}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFFB91C1C),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    'Warning: a daily credit deduction may apply until work is submitted.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFFB91C1C)),
+                  ),
+                ]),
+              ),
             if (taskId != null && currentUserUid != null) ...[
               const SizedBox(height: 4),
               Text(
@@ -1724,35 +2120,58 @@ class _DrainTaskCard extends StatelessWidget {
               ),
               if (showCredits) ...[
                 const SizedBox(height: 8),
-                StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: FirebaseFirestore.instance
                       .collection('users')
                       .doc(currentUserUid)
                       .collection('creditAwards')
-                      .doc(taskId)
+                      .where('taskId', isEqualTo: taskId)
                       .snapshots(),
                   builder: (context, awardSnapshot) {
                     if (awardSnapshot.hasError) {
-                      return Text('Credits unavailable',
-                          style: Theme.of(context).textTheme.bodySmall);
+                      return Text('Credits unavailable', style: Theme.of(context).textTheme.bodySmall);
                     }
-                    final amount = awardSnapshot.data?.data()?['credits'];
-                    final credits = amount is int ? amount : 0;
-                    final approved = awardSnapshot.data?.exists == true;
-                    return Row(
-                      children: [
-                        Icon(
-                          approved ? Icons.workspace_premium_outlined
-                              : Icons.schedule_outlined,
-                          size: 18,
-                          color: approved ? Colors.amber.shade800
-                              : Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
+                    var total = 0;
+                    var penaltyTotal = 0;
+                    for (final entry in awardSnapshot.data?.docs ?? const []) {
+                      final value = entry.data()['credits'];
+                      if (value is! int) continue;
+                      total += value;
+                      if (entry.data()['type'] == 'overduePenalty') penaltyTotal += value;
+                    }
+                    final rate = data['dailyOverdueDeduction'] is int
+                        ? data['dailyOverdueDeduction'] as int : 0;
+                    final day = _parseTaskDate(data['dateKey']);
+                    final elapsedDays = day != null && isOverdue
+                        ? _todayOnly().difference(day).inDays : 0;
+                    final estimatedPenalty = rate * elapsedDays;
+                    if (isOverdue && penaltyTotal < 0) {
+                      return Row(children: [
+                        Icon(Icons.trending_down, size: 18, color: const Color(0xFFB91C1C)),
                         const SizedBox(width: 5),
-                        Text(approved ? '+$credits credits' : '0 credits',
-                            style: const TextStyle(fontWeight: FontWeight.w700)),
-                      ],
-                    );
+                        Text('$penaltyTotal credits', style: TextStyle(fontWeight: FontWeight.w700, color: const Color(0xFFB91C1C))),
+                      ]);
+                    }
+                    if (isOverdue && estimatedPenalty > 0) {
+                      return Row(children: [
+                        Icon(Icons.trending_down, size: 18, color: const Color(0xFFB91C1C)),
+                        const SizedBox(width: 5),
+                        Text('−$estimatedPenalty credits (pending)', style: TextStyle(fontWeight: FontWeight.w700, color: const Color(0xFFB91C1C))),
+                      ]);
+                    }
+                    if (total < 0) {
+                      return Row(children: [
+                        Icon(Icons.trending_down, size: 18, color: const Color(0xFFB91C1C)),
+                        const SizedBox(width: 5),
+                        Text('$total credits', style: TextStyle(fontWeight: FontWeight.w700, color: const Color(0xFFB91C1C))),
+                      ]);
+                    }
+                    return Row(children: [
+                      Icon(total > 0 ? Icons.workspace_premium_outlined : Icons.schedule_outlined,
+                          size: 18, color: total > 0 ? const Color(0xFFF59E0B) : Theme.of(context).colorScheme.onSurfaceVariant),
+                      const SizedBox(width: 5),
+                      Text(total > 0 ? '+$total credits' : '0 credits', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    ]);
                   },
                 ),
               ],
@@ -1769,7 +2188,7 @@ class _DrainTaskCard extends StatelessWidget {
                   return Text(
                     submitted ? 'Your image upload: Submitted' : 'Your image upload: Pending',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: submitted ? Colors.green : Theme.of(context).colorScheme.onSurfaceVariant,
+                      color: submitted ? const Color(0xFF059669) : Theme.of(context).colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w600,
                     ),
                   );
@@ -1784,8 +2203,33 @@ class _DrainTaskCard extends StatelessWidget {
   }
 }
 
-bool isScheduledToday(dynamic dateKey) =>
-    dateKey is String && dateKey == _dateKey(DateTime.now());
+DateTime? _parseTaskDate(dynamic rawDate) {
+  DateTime? parsed;
+  if (rawDate is String) parsed = DateTime.tryParse(rawDate);
+  if (rawDate is Timestamp) parsed = rawDate.toDate();
+  if (parsed == null) return null;
+  return DateTime(parsed.year, parsed.month, parsed.day);
+}
+
+DateTime _todayOnly() {
+  final now = DateTime.now();
+  return DateTime(now.year, now.month, now.day);
+}
+
+bool isScheduledToday(dynamic dateKey) {
+  final day = _parseTaskDate(dateKey);
+  return day != null && day == _todayOnly();
+}
+
+bool isOverdueTaskDate(dynamic dateKey) {
+  final day = _parseTaskDate(dateKey);
+  return day != null && day.isBefore(_todayOnly());
+}
+
+bool isTodayOrOverdueTaskDate(dynamic dateKey) {
+  final day = _parseTaskDate(dateKey);
+  return day != null && !day.isAfter(_todayOnly());
+}
 
 /// Explicit task edit boundaries written by the administrator.
 /// A task without these boundaries is read-only for server-enforced uploads.
@@ -1794,6 +2238,395 @@ bool hasEditWindow(Map<String, dynamic> task) =>
 
 /// One shared Firestore task document can be assigned to multiple crew UIDs.
 /// Each crew member's photo submission is stored separately in `workUpdates`.
+/// Applies idempotent, admin-authorized daily overdue deductions from each task's
+/// `dailyOverdueDeduction` field. Call explicitly from the admin review screen.
+/// A separate immutable ledger document is created for each crew/task/day.
+Future<int> processOverdueDeductionsForAdmin(String adminUid) async {
+  final db = FirebaseFirestore.instance;
+  final today = _todayOnly();
+  final tasks = await db.collection('tasks').get();
+  var createdCount = 0;
+
+  for (final taskDoc in tasks.docs) {
+    final task = taskDoc.data();
+    final taskDay = _parseTaskDate(task['dateKey']);
+    final rate = task['dailyOverdueDeduction'];
+    final assignedRaw = task['assignedToUid'];
+    if (taskDay == null || !taskDay.isBefore(today) || rate is! int || rate <= 0 || assignedRaw is! List) {
+      continue;
+    }
+
+    for (final uid in assignedRaw.whereType<String>()) {
+      final submissions = await taskDoc.reference.collection('workUpdates')
+          .where('submittedByUid', isEqualTo: uid).get();
+      var cutoffDay = today;
+      if (submissions.docs.isNotEmpty) {
+        DateTime? firstSubmissionDay;
+        for (final submission in submissions.docs) {
+          final submittedAt = submission.data()['submittedAt'];
+          if (submittedAt is! Timestamp) continue;
+          final timestamp = submittedAt.toDate();
+          final day = DateTime(timestamp.year, timestamp.month, timestamp.day);
+          if (firstSubmissionDay == null || day.isBefore(firstSubmissionDay)) {
+            firstSubmissionDay = day;
+          }
+        }
+        if (firstSubmissionDay != null) cutoffDay = firstSubmissionDay;
+      }
+      if (!cutoffDay.isAfter(taskDay)) continue;
+
+      for (var penaltyDay = taskDay.add(const Duration(days: 1));
+          !penaltyDay.isAfter(cutoffDay);
+          penaltyDay = penaltyDay.add(const Duration(days: 1))) {
+        final dayKey = _dateKey(penaltyDay);
+        final penaltyId = 'overdue_${taskDoc.id}_$dayKey';
+        final penaltyRef = db.collection('users').doc(uid)
+            .collection('creditAwards').doc(penaltyId);
+        final created = await db.runTransaction<bool>((tx) async {
+          final prior = await tx.get(penaltyRef);
+          if (prior.exists) return false;
+          tx.set(penaltyRef, {
+            'taskId': taskDoc.id,
+            'taskTitle': (task['title'] ?? 'Assigned task').toString(),
+            'crewUid': uid,
+            'credits': -rate,
+            'type': 'overduePenalty',
+            'penaltyDate': dayKey,
+            'dailyRate': rate,
+            'approvedByUid': adminUid,
+            'approvedAt': FieldValue.serverTimestamp(),
+          });
+          return true;
+        });
+        if (created) createdCount++;
+      }
+    }
+  }
+  return createdCount;
+}
+
+String _taskDateLabel(dynamic rawDate) {
+  if (rawDate is String) {
+    final parsed = DateTime.tryParse(rawDate);
+    if (parsed != null) return _prettyDate(parsed);
+  }
+  if (rawDate is Timestamp) return _prettyDate(rawDate.toDate());
+  return 'Date not specified';
+}
+
+/// Live, per-crew admin award display for this task.
+class _TaskAwardCredits extends StatelessWidget {
+  const _TaskAwardCredits({required this.taskId, required this.uid});
+  final String taskId;
+  final String uid;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(uid)
+          .collection('creditAwards').where('taskId', isEqualTo: taskId).snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return const Text('Credits unavailable');
+        var total = 0;
+        for (final doc in snapshot.data?.docs ?? const []) {
+          final amount = doc.data()['credits'];
+          if (amount is int) total += amount;
+        }
+        final isPenalty = total < 0;
+        final hasAward = total > 0;
+        return Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(
+            isPenalty ? Icons.trending_down : hasAward
+                ? Icons.workspace_premium_outlined : Icons.schedule_outlined,
+            size: 20,
+            color: isPenalty ? const Color(0xFFB91C1C) : hasAward
+                ? const Color(0xFFF59E0B) : Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            total < 0 ? '$total credits' : hasAward ? '+$total credits' : '0 credits',
+            style: TextStyle(fontWeight: FontWeight.bold,
+                color: isPenalty ? const Color(0xFFB91C1C) : null),
+          ),
+        ]);
+      },
+    );
+  }
+}
+
+class _GeoMetadataRow extends StatelessWidget {
+  const _GeoMetadataRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SizedBox(width: 92, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
+      Expanded(child: Text(value)),
+    ]),
+  );
+}
+
+String _formatCapturedAt(dynamic value) {
+  if (value is Timestamp) {
+    final date = value.toDate();
+    return '${_prettyDate(date)} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  }
+  return 'Not recorded';
+}
+
+class RequestLeavePage extends StatefulWidget {
+  const RequestLeavePage({
+    super.key,
+    required this.currentUserUid,
+    required this.crewName,
+  });
+
+  final String currentUserUid;
+  final String crewName;
+
+  @override
+  State<RequestLeavePage> createState() => _RequestLeavePageState();
+}
+
+class _RequestLeavePageState extends State<RequestLeavePage> {
+  final TextEditingController _reasonController = TextEditingController();
+  final Set<DateTime> _selectedDates = <DateTime>{};
+  late DateTime _visibleMonth;
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _visibleMonth = DateTime(now.year, now.month);
+  }
+
+  @override
+  void dispose() {
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  DateTime _dayOnly(DateTime value) => DateTime(value.year, value.month, value.day);
+
+  DateTime get _tomorrow => _dayOnly(DateTime.now()).add(const Duration(days: 1));
+
+  bool _isSelectable(DateTime day) => !day.isBefore(_tomorrow);
+
+  String _monthTitle(DateTime month) {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return '${months[month.month - 1]} ${month.year}';
+  }
+
+  void _changeMonth(int offset) {
+    final next = DateTime(_visibleMonth.year, _visibleMonth.month + offset);
+    final current = DateTime(DateTime.now().year, DateTime.now().month);
+    if (next.isBefore(current)) return;
+    setState(() => _visibleMonth = next);
+  }
+
+  void _toggleDate(DateTime day) {
+    final normalized = _dayOnly(day);
+    if (!_isSelectable(normalized)) return;
+    setState(() {
+      if (!_selectedDates.add(normalized)) _selectedDates.remove(normalized);
+    });
+  }
+
+  Future<void> _submitLeave() async {
+    if (_submitting) return;
+    if (_selectedDates.isEmpty) {
+      showAppMessage(context, 'Select at least one future leave date.');
+      return;
+    }
+    final reason = _reasonController.text.trim();
+    if (reason.isEmpty) {
+      showAppMessage(context, 'Enter a reason for leave.');
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      final dates = _selectedDates.toList()..sort();
+      await FirebaseFirestore.instance.collection('leaveRequests').add({
+        'crewUid': widget.currentUserUid,
+        'crewName': widget.crewName,
+        'dates': dates.map(_dateKey).toList(),
+        'reason': reason,
+        'status': 'Pending',
+        'requestedAt': FieldValue.serverTimestamp(),
+      });
+      if (!mounted) return;
+      setState(() {
+        _selectedDates.clear();
+        _reasonController.clear();
+      });
+      showAppMessage(context, 'Leave request submitted for admin approval.');
+    } on FirebaseException catch (e) {
+      if (mounted) {
+        showAppMessage(context, e.code == 'permission-denied'
+            ? 'Leave request was blocked by Firestore rules. Add leaveRequests permissions.'
+            : 'Could not submit leave request: ${e.message ?? e.code}');
+      }
+    } catch (e) {
+      if (mounted) showAppMessage(context, 'Could not submit leave request: $e');
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Widget _calendar() {
+    final first = DateTime(_visibleMonth.year, _visibleMonth.month, 1);
+    final daysInMonth = DateTime(_visibleMonth.year, _visibleMonth.month + 1, 0).day;
+    final leading = first.weekday - 1;
+    const week = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(children: [
+          Row(children: [
+            IconButton(onPressed: () => _changeMonth(-1), icon: const Icon(Icons.chevron_left)),
+            Expanded(child: Text(_monthTitle(_visibleMonth), textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17))),
+            IconButton(onPressed: () => _changeMonth(1), icon: const Icon(Icons.chevron_right)),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [for (final d in week) Expanded(child: Text(d,
+              textAlign: TextAlign.center, style: Theme.of(context).textTheme.labelSmall))]),
+          const SizedBox(height: 8),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 7),
+            itemCount: leading + daysInMonth,
+            itemBuilder: (context, index) {
+              if (index < leading) return const SizedBox.shrink();
+              final day = DateTime(_visibleMonth.year, _visibleMonth.month, index - leading + 1);
+              final enabled = _isSelectable(day);
+              final selected = _selectedDates.contains(_dayOnly(day));
+              return Padding(
+                padding: const EdgeInsets.all(2),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: enabled ? () => _toggleDate(day) : null,
+                  child: Container(
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: selected ? Theme.of(context).colorScheme.primary : null,
+                    ),
+                    child: Text('${day.day}', style: TextStyle(
+                      color: selected
+                          ? Theme.of(context).colorScheme.onPrimary
+                          : enabled ? null : Theme.of(context).disabledColor,
+                      fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                    )),
+                  ),
+                ),
+              );
+            },
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _selectedDateChips() {
+    final dates = _selectedDates.toList()..sort();
+    if (dates.isEmpty) {
+      return const Text('No dates selected yet. Tap future dates in the calendar.');
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: dates.map((date) => InputChip(
+        label: Text(_prettyDate(date)),
+        onDeleted: () => _toggleDate(date),
+      )).toList(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Request Leave')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+        children: [
+          Text('Select Leave Date', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          const Text('Choose one or more future dates. Past dates and today cannot be selected.'),
+          const SizedBox(height: 12),
+          _calendar(),
+          const SizedBox(height: 14),
+          Text('Selected Leave Dates', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          _selectedDateChips(),
+          const SizedBox(height: 20),
+          Text('Reason for Leave', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _reasonController,
+            maxLines: 4,
+            maxLength: 500,
+            decoration: const InputDecoration(hintText: 'Enter reason for leave...'),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            onPressed: _submitting ? null : _submitLeave,
+            icon: _submitting
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.event_available_outlined),
+            label: Text(_submitting ? 'Submitting...' : 'REQUEST LEAVE'),
+          ),
+          const SizedBox(height: 26),
+          Text('My Leave Requests', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance.collection('leaveRequests')
+                .where('crewUid', isEqualTo: widget.currentUserUid).snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Text('Unable to load leave requests: ${snapshot.error}');
+              }
+              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+              final docs = snapshot.data!.docs.toList();
+              docs.sort((a, b) {
+                final aa = a.data()['requestedAt'];
+                final bb = b.data()['requestedAt'];
+                final am = aa is Timestamp ? aa.millisecondsSinceEpoch : 0;
+                final bm = bb is Timestamp ? bb.millisecondsSinceEpoch : 0;
+                return bm.compareTo(am);
+              });
+              if (docs.isEmpty) return const Text('No leave requests submitted yet.');
+              return Column(children: docs.map((doc) {
+                final data = doc.data();
+                final dates = data['dates'] is List ? (data['dates'] as List).whereType<String>().toList() : <String>[];
+                final status = (data['status'] ?? 'Pending').toString();
+                final statusColor = status == 'Approved' ? const Color(0xFF059669)
+                    : status == 'Rejected' ? const Color(0xFFB91C1C) : Colors.orange.shade800;
+                return Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.calendar_month_outlined),
+                    title: Text(dates.isEmpty ? 'Leave request' : dates.join(', ')),
+                    subtitle: Text((data['reason'] ?? '').toString()),
+                    trailing: Text(status, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold)),
+                  ),
+                );
+              }).toList());
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class TaskDetailsPage extends StatefulWidget {
   const TaskDetailsPage({super.key, required this.taskId, required this.currentUserUid});
   final String taskId;
@@ -1818,6 +2651,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   Uint8List? _imageBytes;
   Position? _photoPosition;
   DateTime? _capturedAt;
+  String? _photoAddress;
   bool _busy = false;
   String _saveStage = '';
 
@@ -1853,7 +2687,41 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
     );
   }
 
-  Future<void> _takePhoto() async {
+  Future<String?> _resolvePhotoAddress(Position position, {String? fallbackAddress}) async {
+    try {
+      final placemarks = await Geocoding().placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      ).timeout(const Duration(seconds: 8));
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        final parts = <String?>[
+          place.name,
+          place.street,
+          place.subLocality,
+          place.locality,
+          place.subAdministrativeArea,
+          place.administrativeArea,
+          place.postalCode,
+          place.country,
+        ].whereType<String>().map((part) => part.trim())
+            .where((part) => part.isNotEmpty).toList();
+        final unique = <String>[];
+        for (final part in parts) {
+          if (!unique.contains(part)) unique.add(part);
+        }
+        if (unique.isNotEmpty) return unique.join(', ');
+      }
+    } catch (e) {
+      // Reverse geocoding is not available on every browser/platform.
+      debugPrint('Reverse geocoding unavailable: $e');
+    }
+    final fallback = fallbackAddress?.trim() ?? '';
+    return fallback.isEmpty ? 'Address unavailable; GPS coordinates recorded'
+        : 'Address lookup unavailable; task address: $fallback';
+  }
+
+  Future<void> _takePhoto({String? fallbackAddress}) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
@@ -1873,19 +2741,22 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       final bytes = embedGpsExifInJpeg(
         originalBytes, position, capture.capturedAt,
       );
+      final address = await _resolvePhotoAddress(position, fallbackAddress: fallbackAddress);
       if (!mounted) return;
       setState(() {
         if (_editingUpdateId == null) {
-          // Each capture has independent GPS, EXIF bytes and capture time.
-          _pendingPhotos.removeWhere((photo) => photo.slot == _nextPhotoSlot);
-          _pendingPhotos.add(_PendingWorkPhoto(bytes: bytes,
-              position: position, capturedAt: capture.capturedAt,
-              slot: _nextPhotoSlot));
+          // The app now accepts one new work photo per task/member.
+          _pendingPhotos
+            ..clear()
+            ..add(_PendingWorkPhoto(bytes: bytes,
+                position: position, capturedAt: capture.capturedAt, slot: 1));
+          _nextPhotoSlot = 1;
         }
         _image = capture.image;
         _imageBytes = bytes;
         _photoPosition = position;
         _capturedAt = capture.capturedAt;
+        _photoAddress = address;
       });
     } catch (e) {
       if (mounted) {
@@ -1898,8 +2769,15 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
   Future<void> _submit(Map<String, dynamic> task) async {
     if (_busy) return;
-    if (!isScheduledToday(task['dateKey'])) {
-      showAppMessage(context, 'Only today\'s task can be updated.');
+    final taskDay = _parseTaskDate(task['dateKey']);
+    final today = _todayOnly();
+    if (taskDay == null || taskDay.isAfter(today)) {
+      showAppMessage(context, 'Future tasks cannot be updated yet.');
+      return;
+    }
+    final overdueSubmission = taskDay.isBefore(today);
+    if (overdueSubmission && _editingUpdateId != null) {
+      showAppMessage(context, 'Past submissions are read-only. You may submit new evidence for an overdue task if you have not submitted work before.');
       return;
     }
     if (!hasEditWindow(task)) {
@@ -1911,8 +2789,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       showAppMessage(context, 'Enter a short work description.');
       return;
     }
-    if (_editingUpdateId == null && _pendingPhotos.isEmpty) {
-      showAppMessage(context, 'Take at least one geo-tagged photo.');
+    if (_editingUpdateId == null && _pendingPhotos.length != 1) {
+      showAppMessage(context, 'Capture one geo-tagged photo before saving.');
       return;
     }
     setState(() { _busy = true; _saveStage = 'Checking existing photos...'; });
@@ -1924,14 +2802,14 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       final occupied = existing.docs.map((d) => d.id).toSet();
       final changes = <DocumentReference<Map<String, dynamic>>, Map<String, dynamic>>{};
       if (_editingUpdateId == null) {
-        if (existing.docs.length + _pendingPhotos.length > 3) {
-          throw StateError('Maximum 3 photos per task.');
+        if (_pendingPhotos.length != 1) {
+          throw StateError('Capture exactly one geo-tagged photo before saving.');
         }
-        for (final photo in _pendingPhotos) {
-          final id = '${widget.currentUserUid}_photo_${photo.slot}';
-          if (occupied.contains(id)) {
-            throw StateError('Photo ${photo.slot} is already saved. Reopen this task.');
-          }
+        if (existing.docs.isNotEmpty) {
+          throw StateError('One photo is already submitted. Retake that photo instead of adding another.');
+        }
+        if (occupied.contains('${widget.currentUserUid}_photo_1')) {
+          throw StateError('The work photo is already saved. Reopen this task to edit it.');
         }
       } else if (!occupied.contains(_editingUpdateId)) {
         throw StateError('Existing photo not found. Reopen this task.');
@@ -1951,8 +2829,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       ]);
       for (var photoIndex = 0; photoIndex < photos.length; photoIndex++) {
         final photo = photos[photoIndex];
-        _stage('Uploading photo ${photoIndex + 1} of ${photos.length} to Firebase Storage...');
-        final id = _editingUpdateId ?? '${widget.currentUserUid}_photo_${photo.slot}';
+        _stage('Uploading work photo to image storage...');
+        final id = _editingUpdateId ?? '${widget.currentUserUid}_photo_1';
         final updateRef = taskRef.collection('workUpdates').doc(id);
         final filename = '${id}_${DateTime.now().microsecondsSinceEpoch}.jpg';
         final path = 'task_photos/${widget.taskId}/${widget.currentUserUid}/$filename';
@@ -1964,6 +2842,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
             'longitude': photo.position.longitude.toString(),
             'accuracyMeters': photo.position.accuracy.toString(),
             'capturedAt': photo.capturedAt.toUtc().toIso8601String(),
+            'address': _photoAddress ?? '',
             'taskId': widget.taskId,
           },
         ));
@@ -1979,6 +2858,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
           'latitude': photo.position.latitude,
           'longitude': photo.position.longitude,
           'accuracyMeters': photo.position.accuracy,
+          'address': _photoAddress ?? '',
         };
       }
       if (_editingUpdateId != null && photos.isEmpty) {
@@ -2002,6 +2882,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
               ...entry.value,
               'submittedByUid': widget.currentUserUid,
               'submittedAt': FieldValue.serverTimestamp(),
+              'submittedOverdue': overdueSubmission,
             });
           } else {
             if (!before[entry.key]!.exists) throw StateError('Photo missing.');
@@ -2022,6 +2903,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
         _imageBytes = null;
         _photoPosition = null;
         _capturedAt = null;
+        _photoAddress = null;
         _editingUpdateId = null;
         _nextPhotoSlot = 1;
       });
@@ -2049,6 +2931,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       _imageBytes = null;
       _photoPosition = null;
       _capturedAt = null;
+      _photoAddress = null;
     });
   }
 
@@ -2061,6 +2944,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       _imageBytes = null;
       _photoPosition = null;
       _capturedAt = null;
+      _photoAddress = null;
     });
   }
 
@@ -2121,10 +3005,30 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
               Text((task['title'] ?? 'Clean assigned drain').toString(),
                   style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Chip(label: Text('Shared task status: $status')),
+              const SizedBox(height: 4),
+              Row(children: [
+                const Icon(Icons.calendar_today_outlined, size: 18),
+                const SizedBox(width: 8),
+                Text(_taskDateLabel(task['dateKey'])),
+              ]),
+              const SizedBox(height: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Chip(label: Text('Shared task status: $status')),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: _TaskAwardCredits(
+                      taskId: widget.taskId,
+                      uid: widget.currentUserUid,
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 10),
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: FirebaseFirestore.instance.collection('tasks')
                     .doc(widget.taskId).collection('workUpdates')
@@ -2132,7 +3036,10 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                     .snapshots(),
                 builder: (context, uploadSnapshot) {
                   if (uploadSnapshot.hasError) {
-                    return Text('Unable to read photos: ${uploadSnapshot.error}');
+                    return Card(child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Text('Unable to read work photo: ${uploadSnapshot.error}'),
+                    ));
                   }
                   final docs = uploadSnapshot.data?.docs.toList() ?? [];
                   docs.sort((a, b) {
@@ -2141,147 +3048,135 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                     return (x is Timestamp ? x.millisecondsSinceEpoch : 0)
                         .compareTo(y is Timestamp ? y.millisecondsSinceEpoch : 0);
                   });
-                  final canEdit = isScheduledToday(task['dateKey']);
-                  final canAdd = canEdit && docs.length + _pendingPhotos.length < 3;
-                  final bySlot = <int, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-                  for (final doc in docs) {
-                    final match = RegExp(r'_photo_([123])$').firstMatch(doc.id);
-                    if (match != null) bySlot[int.parse(match.group(1)!)] = doc;
-                  }
-                  // Older submissions may use random IDs. Show them without
-                  // losing the evidence, and still enforce a maximum of 3.
-                  final legacyDocs = docs.where((d) =>
-                  !bySlot.values.any((v) => v.id == d.id)).toList();
-                  for (final doc in legacyDocs) {
-                    for (var slot = 1; slot <= 3; slot++) {
-                      if (!bySlot.containsKey(slot)) {
-                        bySlot[slot] = doc;
-                        break;
-                      }
-                    }
-                  }
-                  final pendingSlots = _pendingPhotos.map((p) => p.slot).toSet();
-                  final nextSlot = [1, 2, 3].where((s) =>
-                  !bySlot.containsKey(s) && !pendingSlots.contains(s)).firstOrNull;
+                  final saved = docs.isEmpty ? null : docs.first;
+                  final savedData = saved?.data();
+                  final savedUrl = savedData?['photoUrl'];
+                  final taskIsToday = isScheduledToday(task['dateKey']);
+                  final taskIsOverdue = isOverdueTaskDate(task['dateKey']);
+                  final canSubmitNew = saved == null && (taskIsToday || taskIsOverdue);
+                  final canRetake = saved != null && taskIsToday;
+                  final staged = _pendingPhotos.isNotEmpty ? _pendingPhotos.first : null;
                   return Card(child: Padding(
                     padding: const EdgeInsets.all(14),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(children: [
-                          Expanded(child: Text('Work Photos',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold))),
-                          Text('${docs.length} saved · ${_pendingPhotos.length} ready',
-                              style: Theme.of(context).textTheme.bodySmall),
-                        ]),
-                        const SizedBox(height: 14),
-                        Row(crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [for (var slot = 1; slot <= 3; slot++)
-                              Expanded(child: Padding(
-                                padding: EdgeInsets.only(right: slot == 3 ? 0 : 8),
-                                child: Builder(builder: (context) {
-                                  final doc = bySlot[slot];
-                                  final url = doc?.data()['photoUrl'];
-                                  final staged = _pendingPhotos.where((p) => p.slot == slot).firstOrNull;
-                                  final isNext = nextSlot == slot && canAdd;
-                                  return InkWell(
-                                    borderRadius: BorderRadius.circular(12),
-                                    onTap: staged != null ? () async {
-                                      _nextPhotoSlot = slot;
-                                      await _takePhoto();
-                                    } : doc != null ? () {
-                                      showDialog<void>(context: context,
-                                          builder: (dialogContext) => AlertDialog(
-                                            title: Text('Photo $slot'),
-                                            content: SingleChildScrollView(child: Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                if (url is String) Image.network(url,
-                                                    errorBuilder: (_, __, ___) =>
-                                                    const Text('Image unavailable')),
-                                                const SizedBox(height: 12),
-                                                Text((doc.data()['description'] ?? '').toString()),
-                                              ],
-                                            )),
-                                            actions: [
-                                              TextButton(onPressed: () => Navigator.pop(dialogContext),
-                                                  child: const Text('Close')),
-                                              if (canEdit) FilledButton(
-                                                  onPressed: () {
-                                                    Navigator.pop(dialogContext);
-                                                    _editUpdate(doc);
-                                                  }, child: const Text('Edit')),
-                                            ],
-                                          ));
-                                    } : isNext ? () async {
-                                      _newUpdate(slot);
-                                      await _takePhoto();
-                                    } : null,
-                                    child: Container(
-                                      height: 116,
-                                      decoration: BoxDecoration(
-                                        border: Border.all(color: Theme.of(context)
-                                            .colorScheme.outlineVariant),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      clipBehavior: Clip.antiAlias,
-                                      child: staged != null
-                                          ? Stack(fit: StackFit.expand, children: [
-                                        Image.memory(staged.bytes, fit: BoxFit.cover),
-                                        const Align(alignment: Alignment.bottomCenter,
-                                            child: ColoredBox(color: Colors.black54,
-                                                child: Text('Ready to save', textAlign: TextAlign.center,
-                                                    style: TextStyle(color: Colors.white, fontSize: 12)))),
-                                      ])
-                                          : doc != null && url is String
-                                          ? Stack(fit: StackFit.expand, children: [
-                                        Image.network(url, fit: BoxFit.cover,
-                                            errorBuilder: (_, __, ___) =>
-                                            const Icon(Icons.broken_image_outlined)),
-                                        Align(alignment: Alignment.bottomCenter,
-                                            child: ColoredBox(color: Colors.black54,
-                                                child: Padding(padding: const EdgeInsets.all(5),
-                                                    child: Text('Photo $slot',
-                                                        textAlign: TextAlign.center,
-                                                        style: const TextStyle(color: Colors.white,
-                                                            fontSize: 12))))),
-                                      ])
-                                          : Column(mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Icon(isNext ? Icons.add_a_photo_outlined :
-                                            Icons.photo_outlined,
-                                                color: isNext ? Theme.of(context).colorScheme.primary :
-                                                Theme.of(context).colorScheme.outline),
-                                            const SizedBox(height: 7),
-                                            Text(isNext ? 'Add photo' : 'Photo $slot',
-                                                textAlign: TextAlign.center,
-                                                style: Theme.of(context).textTheme.bodySmall),
-                                          ]),
-                                    ),
-                                  );
-                                }),
-                              )),
-                            ]),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Expanded(child: Text('Work Photo',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))),
+                        Text(staged != null ? '1 ready' : saved != null ? '1 saved' : '0 of 1',
+                            style: Theme.of(context).textTheme.bodySmall),
+                      ]),
+                      const SizedBox(height: 12),
+                      if (staged != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.memory(staged.bytes, width: double.infinity, height: 220, fit: BoxFit.cover),
+                        )
+                      else if (savedUrl is String)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(savedUrl, width: double.infinity, height: 220, fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const SizedBox(height: 140,
+                                child: Center(child: Icon(Icons.broken_image_outlined, size: 40))),
+                          ),
+                        )
+                      else
+                        Container(
+                          height: 130,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                            Icon(Icons.add_a_photo_outlined, size: 30),
+                            SizedBox(height: 6),
+                            Text('No work photo captured yet'),
+                          ]),
+                        ),
+                      if (staged != null || savedData != null) ...[
                         const SizedBox(height: 12),
                         Row(children: [
-                          Icon(Icons.location_on_outlined, color: Colors.green.shade700),
+                          Icon(Icons.location_on_outlined, color: const Color(0xFF047857)),
                           const SizedBox(width: 8),
-                          Expanded(child: Text('GPS is embedded in each uploaded JPEG.',
-                              style: Theme.of(context).textTheme.bodySmall)),
+                          Expanded(child: Text('Photo Location Details',
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold))),
                         ]),
-                        if (!canEdit) const Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: Text('Past and future tasks are view only.'),
-                        ),
-                        if (canEdit && docs.length >= 3) const Padding(
-                          padding: EdgeInsets.only(top: 8),
-                          child: Text('All 3 photo slots are filled. Tap a photo to edit it.'),
-                        ),
+                        const SizedBox(height: 8),
+                        _GeoMetadataRow(label: 'Address', value: staged != null
+                            ? (_photoAddress ?? (task['location'] ?? 'Address unavailable').toString())
+                            : (savedData?['address'] ?? task['location'] ?? 'Address unavailable').toString()),
+                        _GeoMetadataRow(label: 'Latitude', value: staged != null
+                            ? '${staged.position.latitude.toStringAsFixed(6)}°'
+                            : '${savedData?['latitude'] ?? 'Not recorded'}°'),
+                        _GeoMetadataRow(label: 'Longitude', value: staged != null
+                            ? '${staged.position.longitude.toStringAsFixed(6)}°'
+                            : '${savedData?['longitude'] ?? 'Not recorded'}°'),
+                        _GeoMetadataRow(label: 'Captured at', value: staged != null
+                            ? _prettyDate(staged.capturedAt) + ' ${TimeOfDay.fromDateTime(staged.capturedAt).format(context)}'
+                            : _formatCapturedAt(savedData?['capturedAt'])),
+                        _GeoMetadataRow(label: 'GPS accuracy', value: staged != null
+                            ? '±${staged.position.accuracy.toStringAsFixed(1)} metres'
+                            : ((savedData?['accuracyMeters'] is num)
+                                ? '±${(savedData!['accuracyMeters'] as num).toStringAsFixed(1)} metres'
+                                : 'Not recorded')),
+                        if (staged != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text('GPS coordinates and capture time are embedded in this JPEG.',
+                              style: Theme.of(context).textTheme.bodySmall),
+                          ),
                       ],
-                    ),
+                      const SizedBox(height: 12),
+                      if (canSubmitNew || canRetake)
+                        OutlinedButton.icon(
+                          onPressed: _busy ? null : () async {
+                            if (saved != null && taskIsToday) {
+                              _editUpdate(saved);
+                            } else {
+                              _newUpdate(1);
+                            }
+                            await _takePhoto(fallbackAddress: (task['location'] ?? '').toString());
+                          },
+                          icon: const Icon(Icons.camera_alt_outlined),
+                          label: Text(saved != null ? 'Retake photo' : taskIsOverdue
+                              ? 'Capture overdue work photo' : 'Open live camera'),
+                        ),
+                      if (taskIsOverdue && saved == null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text('Overdue task: submit one new photo with current GPS details. Previously submitted work stays read-only.',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFFD97706))),
+                        )
+                      else if (!taskIsToday && saved != null)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 6),
+                          child: Text('Past task: submitted photo and description are view-only.'),
+                        ),
+                    ]),
                   ));
                 },
               ),
+              if (isOverdueTaskDate(task['dateKey']))
+                Builder(builder: (context) {
+                  final rate = task['dailyOverdueDeduction'] is int
+                      ? task['dailyOverdueDeduction'] as int : 0;
+                  final day = _parseTaskDate(task['dateKey']);
+                  final days = day == null ? 0 : _todayOnly().difference(day).inDays;
+                  return Card(
+                    color: const Color(0xFFB91C1C).withOpacity(0.06),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Icon(Icons.warning_amber_rounded, color: const Color(0xFFB91C1C)),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(rate > 0
+                            ? 'Overdue warning: $days day(s) overdue. Estimated deduction: −${rate * days} credits. Final deductions are applied by the administrator.'
+                            : 'Overdue warning: final credit deduction is awaiting administrator assessment.',
+                          style: TextStyle(color: const Color(0xFFB91C1C), fontWeight: FontWeight.w600))),
+                      ]),
+                    ),
+                  );
+                }),
               Card(child: Padding(
                 padding: const EdgeInsets.all(14),
                 child: Column(children: [
@@ -2327,67 +3222,50 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                   padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   child: Text('Crew details have not been synced yet. Ask the administrator to run the task crew sync script.'),
                 ),
-              if (isScheduledToday(task['dateKey'])) ...[
-                const SizedBox(height: 16),
-                Text(_editingUpdateId == null ? 'Capture up to 3 Photos' : 'Edit Work Photo',
-                    style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: _busy || (_editingUpdateId == null &&
-                      (_pendingPhotos.length >= 3 || !isScheduledToday(task['dateKey'])))
-                      ? null : () async {
-                    if (_editingUpdateId == null) {
-                      final saved = await FirebaseFirestore.instance.collection('tasks')
-                          .doc(widget.taskId).collection('workUpdates')
-                          .where('submittedByUid', isEqualTo: widget.currentUserUid).get();
-                      final used = <int>{..._pendingPhotos.map((p) => p.slot)};
-                      for (final doc in saved.docs) {
-                        final match = RegExp(r'_photo_([123])$').firstMatch(doc.id);
-                        if (match != null) used.add(int.parse(match.group(1)!));
-                      }
-                      final next = [1, 2, 3].where((i) => !used.contains(i)).firstOrNull;
-                      if (next == null || saved.docs.length + _pendingPhotos.length >= 3) {
-                        if (mounted) showAppMessage(context, 'All 3 photo slots are used.');
-                        return;
-                      }
-                      _nextPhotoSlot = next;
-                    }
-                    await _takePhoto();
-                  },
-                  icon: const Icon(Icons.camera_alt_outlined),
-                  label: Text(_editingUpdateId != null ? 'Retake photo' :
-                  'Capture next photo (${_pendingPhotos.length}/3 ready)'),
-                ),
-                if (_imageBytes != null) ...[
-                  const SizedBox(height: 8),
-                  ClipRRect(borderRadius: BorderRadius.circular(12),
-                      child: Image.memory(_imageBytes!, height: 180, fit: BoxFit.cover)),
-                  Text('EXIF GPS: ${_photoPosition!.latitude.toStringAsFixed(5)}, '
-                      '${_photoPosition!.longitude.toStringAsFixed(5)}',
-                      style: Theme.of(context).textTheme.bodySmall),
-                ],
-                const SizedBox(height: 12),
-                Text('Work Description', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                TextField(controller: _descriptionController,
-                    maxLines: 3, maxLength: 500,
-                    decoration: const InputDecoration(hintText: 'Describe your work...')),
-                const SizedBox(height: 10),
-                FilledButton.icon(
-                  onPressed: _busy ? null : () => _submit(task),
-                  icon: const Icon(Icons.cloud_upload_outlined),
-                  label: Text(_busy ? 'Saving...' :
-                  _editingUpdateId == null ? 'Save ${_pendingPhotos.length} Photo(s)' : 'Save Changes'),
-                ),
-                if (_busy && _saveStage.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  const LinearProgressIndicator(),
-                  const SizedBox(height: 6),
-                  Text(_saveStage, textAlign: TextAlign.center),
-                ],
-              ] else const Padding(
-                padding: EdgeInsets.symmetric(vertical: 14),
-                child: Text('This task is view-only outside its scheduled date.'),
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance.collection('tasks')
+                    .doc(widget.taskId).collection('workUpdates')
+                    .where('submittedByUid', isEqualTo: widget.currentUserUid)
+                    .snapshots(),
+                builder: (context, savedUpdatesSnapshot) {
+                  if (!savedUpdatesSnapshot.hasData) {
+                    return const SizedBox.shrink();
+                  }
+                  final isTodayTask = isScheduledToday(task['dateKey']);
+                  final isOverdueTask = isOverdueTaskDate(task['dateKey']);
+                  final hasPriorSubmission = savedUpdatesSnapshot.data!.docs.isNotEmpty;
+                  final allowOverdueSubmission = isOverdueTask && !hasPriorSubmission;
+                  if (!isTodayTask && !allowOverdueSubmission) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      child: Text('This past task is view-only. Overdue tasks can accept new evidence only if you have not submitted work for them before.'),
+                    );
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 16),
+                      Text('Work Description', style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 8),
+                      TextField(controller: _descriptionController,
+                          maxLines: 3, maxLength: 500,
+                          decoration: const InputDecoration(hintText: 'Describe your work...')),
+                      const SizedBox(height: 10),
+                      FilledButton.icon(
+                        onPressed: _busy ? null : () => _submit(task),
+                        icon: const Icon(Icons.cloud_upload_outlined),
+                        label: Text(_busy ? 'Saving...' :
+                            _editingUpdateId == null ? 'Save Photo & Work Update' : 'Save Changes'),
+                      ),
+                      if (_busy && _saveStage.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        const LinearProgressIndicator(),
+                        const SizedBox(height: 6),
+                        Text(_saveStage, textAlign: TextAlign.center),
+                      ],
+                    ],
+                  );
+                },
               ),
             ],
           );
