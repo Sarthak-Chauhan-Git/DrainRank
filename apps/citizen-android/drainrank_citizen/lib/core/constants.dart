@@ -35,7 +35,25 @@ class KnownDrainPin {
     required this.vReason,
   });
 }
+enum HighUrgencyPlaceType {
+  hospital,
+  school,
+  emergencyFacility,
+}
 
+class HighUrgencyPlace {
+  final String name;
+  final HighUrgencyPlaceType type;
+  final double latitude;
+  final double longitude;
+
+  const HighUrgencyPlace({
+    required this.name,
+    required this.type,
+    required this.latitude,
+    required this.longitude,
+  });
+}
 // Pre-loaded drains from Poster (DR-1024) & Proposal Case Study (Section 5.1)
 const List<KnownDrainPin> kDemoDrainInventory = [
   KnownDrainPin(
