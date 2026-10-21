@@ -441,7 +441,7 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       _isCheckingUrgency = true;
       _urgencyLocationVerified = false;
       _urgencyVerificationMessage =
-      'Checking for hospitals and schools within 500 m...';
+      'Checking for nearby high-urgency facilities within 500 m...';
     });
 
     try {
@@ -471,7 +471,7 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
           _selectedConsequence =
               UrgencyConsequence.standardResidential;
           _urgencyVerificationMessage =
-          'No school or hospitals nearby.';
+          'No matching high-urgency facilities found within 500 m.';
         });
         return;
       }
@@ -490,10 +490,13 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         _selectedConsequence =
             UrgencyConsequence.criticalHospitalSchool;
         _urgencyVerificationMessage =
-        '${place.name} (${place.type}) verified '
+            '${place.name} (${place.type}) verified '
             '${distance.round()} m from report location.';
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('URGENT FACILITY VERIFICATION ERROR: $e');
+      debugPrintStack(stackTrace: stackTrace);
+
       if (!mounted) return;
 
       setState(() {
@@ -502,7 +505,7 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         _selectedConsequence =
             UrgencyConsequence.standardResidential;
         _urgencyVerificationMessage =
-        'Unable to check nearby facilities. Please try again.';
+        'Verification failed: $e';
       });
     } finally {
       if (mounted) {
@@ -1091,16 +1094,23 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                   ),
                   value: _isUrgentFlagged,
                   onChanged: (val) {
+                    if (val && !_urgencyLocationVerified) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Verify nearby facilities before enabling high urgency.',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
                     setState(() {
                       _isUrgentFlagged = val;
 
-                      if (val) {
-                        _selectedConsequence =
-                            UrgencyConsequence.criticalHospitalSchool;
-                      } else {
-                        _selectedConsequence =
-                            UrgencyConsequence.standardResidential;
-                      }
+                      _selectedConsequence = val
+                          ? UrgencyConsequence.criticalHospitalSchool
+                          : UrgencyConsequence.standardResidential;
                     });
                   },
                 ),
