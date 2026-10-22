@@ -1,19 +1,57 @@
 import 'dart:io';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/constants.dart';
 import 'models/citizen_report.dart';
 import 'services/drainrank_engine.dart';
 import 'services/high_urgency_places_service.dart';
 
-void main() {
+const _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+const _supabasePublishableKey = String.fromEnvironment(
+  'SUPABASE_PUBLISHABLE_KEY',
+  defaultValue: String.fromEnvironment('SUPABASE_ANON_KEY'),
+);
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (_supabaseUrl.isEmpty || _supabasePublishableKey.isEmpty) {
+    runApp(const _BackendSetupRequiredApp());
+    return;
+  }
+  await Supabase.initialize(
+    url: _supabaseUrl,
+    publishableKey: _supabasePublishableKey,
+  );
   runApp(const DrainRankCitizenApp());
+}
+
+class _BackendSetupRequiredApp extends StatelessWidget {
+  const _BackendSetupRequiredApp();
+
+  @override
+  Widget build(BuildContext context) => const MaterialApp(
+    home: Scaffold(
+      body: Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Supabase is not configured. Run this app with '
+            '--dart-define=SUPABASE_URL=... and '
+            '--dart-define=SUPABASE_PUBLISHABLE_KEY=... .',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class DrainRankCitizenApp extends StatelessWidget {
@@ -52,9 +90,7 @@ class DrainRankCitizenApp extends StatelessWidget {
           margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
-            side: const BorderSide(
-              color: Color(0xFFD8E4E8),
-            ),
+            side: const BorderSide(color: Color(0xFFD8E4E8)),
           ),
         ),
 
@@ -69,22 +105,15 @@ class DrainRankCitizenApp extends StatelessWidget {
           fillColor: const Color(0xFFF8FAFC),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(
-              color: Color(0xFFD8E4E8),
-            ),
+            borderSide: const BorderSide(color: Color(0xFFD8E4E8)),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(
-              color: Color(0xFFD8E4E8),
-            ),
+            borderSide: const BorderSide(color: Color(0xFFD8E4E8)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(
-              color: Color(0xFF0F766E),
-              width: 1.5,
-            ),
+            borderSide: const BorderSide(color: Color(0xFF0F766E), width: 1.5),
           ),
         ),
 
@@ -96,9 +125,260 @@ class DrainRankCitizenApp extends StatelessWidget {
         ),
       ),
 
-      home: const DrainRankHomeShell(),
+      home: const CitizenAuthGate(),
     );
   }
+}
+
+class CitizenAuthGate extends StatefulWidget {
+  const CitizenAuthGate({super.key});
+
+  @override
+  State<CitizenAuthGate> createState() => _CitizenAuthGateState();
+}
+
+class _CitizenAuthGateState extends State<CitizenAuthGate> {
+  late final StreamSubscription<AuthState> _authSubscription;
+  bool _signedIn = Supabase.instance.client.auth.currentSession != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((
+      state,
+    ) {
+      if (mounted) setState(() => _signedIn = state.session != null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSubscription.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      _signedIn ? const DrainRankHomeShell() : const CitizenPhoneAuthPage();
+}
+
+enum _AuthMode { signIn, signUp }
+
+class CitizenPhoneAuthPage extends StatefulWidget {
+  const CitizenPhoneAuthPage({super.key});
+
+  @override
+  State<CitizenPhoneAuthPage> createState() => _CitizenPhoneAuthPageState();
+}
+
+class _CitizenPhoneAuthPageState extends State<CitizenPhoneAuthPage> {
+  final _phoneController = TextEditingController();
+  final _codeController = TextEditingController();
+  _AuthMode _mode = _AuthMode.signIn;
+  bool _codeSent = false;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    _codeController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendCode() async {
+    final phone = _phoneController.text.trim();
+    if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
+      setState(
+        () => _error =
+            'Enter your phone number with country code, e.g. +919876543210.',
+      );
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await Supabase.instance.client.auth.signInWithOtp(
+        phone: phone,
+        shouldCreateUser: _mode == _AuthMode.signUp,
+      );
+      if (mounted) setState(() => _codeSent = true);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = 'Could not send the verification code: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _verifyCode() async {
+    final phone = _phoneController.text.trim();
+    final code = _codeController.text.trim();
+    if (code.length < 4) {
+      setState(
+        () => _error = 'Enter the verification code sent to your phone.',
+      );
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await Supabase.instance.client.auth.verifyOTP(
+        phone: phone,
+        token: code,
+        type: OtpType.sms,
+      );
+    } catch (error) {
+      if (mounted) setState(() => _error = 'Could not verify the code: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Icon(
+                      Icons.water_drop_rounded,
+                      size: 48,
+                      color: Color(0xFF0F766E),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _mode == _AuthMode.signUp
+                          ? 'Create your citizen account'
+                          : 'Citizen sign in',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Use your phone number to receive a one-time verification code.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    SegmentedButton<_AuthMode>(
+                      segments: const [
+                        ButtonSegment(
+                          value: _AuthMode.signIn,
+                          label: Text('Sign in'),
+                        ),
+                        ButtonSegment(
+                          value: _AuthMode.signUp,
+                          label: Text('Create account'),
+                        ),
+                      ],
+                      selected: {_mode},
+                      onSelectionChanged: _codeSent || _busy
+                          ? null
+                          : (selection) => setState(() {
+                              _mode = selection.first;
+                              _error = null;
+                            }),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _phoneController,
+                      enabled: !_codeSent && !_busy,
+                      keyboardType: TextInputType.phone,
+                      textInputAction: _codeSent
+                          ? TextInputAction.next
+                          : TextInputAction.done,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone number',
+                        hintText: '+919876543210',
+                        prefixIcon: Icon(Icons.phone_outlined),
+                      ),
+                    ),
+                    if (_codeSent) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _codeController,
+                        enabled: !_busy,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          labelText: 'Verification code',
+                          prefixIcon: Icon(Icons.lock_outline),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() {
+                                _codeSent = false;
+                                _codeController.clear();
+                                _error = null;
+                              }),
+                        child: const Text('Change phone number'),
+                      ),
+                    ],
+                    if (_error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: _busy
+                          ? null
+                          : _codeSent
+                          ? _verifyCode
+                          : _sendCode,
+                      child: _busy
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(
+                              _codeSent
+                                  ? 'Verify and continue'
+                                  : _mode == _AuthMode.signUp
+                                  ? 'Create account and send code'
+                                  : 'Send sign-in code',
+                            ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Choose create account for a new number, or sign in for '
+                      'an existing account. The account is activated after '
+                      'phone verification.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class DrainRankHomeShell extends StatefulWidget {
@@ -139,10 +419,7 @@ class _DrainRankHomeShellState extends State<DrainRankHomeShell> {
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [
-                        Color(0xFF0F766E),
-                        Color(0xFF14B8A6),
-                      ],
+                      colors: [Color(0xFF0F766E), Color(0xFF14B8A6)],
                     ),
                     borderRadius: BorderRadius.circular(10),
                   ),
@@ -179,9 +456,7 @@ class _DrainRankHomeShellState extends State<DrainRankHomeShell> {
             tooltip: 'Notifications',
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('You are all caught up.'),
-                ),
+                const SnackBar(content: Text('You are all caught up.')),
               );
             },
             icon: const Icon(Icons.notifications_none_rounded),
@@ -197,20 +472,21 @@ class _DrainRankHomeShellState extends State<DrainRankHomeShell> {
                 size: 21,
               ),
             ),
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'My Reports') {
                 setState(() => _selectedIndex = 1);
                 return;
               }
 
               if (value == 'Sign Out') {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Sign out requires authentication to be configured.',
-                    ),
-                  ),
-                );
+                try {
+                  await Supabase.instance.client.auth.signOut();
+                } catch (error) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Could not sign out: $error')),
+                  );
+                }
                 return;
               }
 
@@ -277,14 +553,13 @@ class _DrainRankHomeShellState extends State<DrainRankHomeShell> {
       ),
       body: _selectedIndex == 0
           ? ReportIssueTab(
-        deviceId: _deviceId,
-        onReportSubmitted: () => setState(() => _selectedIndex = 1),
-      )
+              deviceId: _deviceId,
+              onReportSubmitted: () => setState(() => _selectedIndex = 1),
+            )
           : const TrackStatusTab(),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (idx) =>
-            setState(() => _selectedIndex = idx),
+        onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.add_a_photo_outlined),
@@ -429,10 +704,9 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       setState(() {
         _urgencyLocationVerified = false;
         _isUrgentFlagged = false;
-        _selectedConsequence =
-            UrgencyConsequence.standardResidential;
+        _selectedConsequence = UrgencyConsequence.standardResidential;
         _urgencyVerificationMessage =
-        'Capture a geotagged photo before verifying.';
+            'Capture a geotagged photo before verifying.';
       });
       return;
     }
@@ -441,12 +715,11 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       _isCheckingUrgency = true;
       _urgencyLocationVerified = false;
       _urgencyVerificationMessage =
-      'Checking for nearby high-urgency facilities within 500 m...';
+          'Checking for nearby high-urgency facilities within 500 m...';
     });
 
     try {
-      final places = await HighUrgencyPlacesService()
-          .fetchNearbyPlaces(
+      final places = await HighUrgencyPlacesService().fetchNearbyPlaces(
         latitude: latitude,
         longitude: longitude,
         radiusMeters: 500,
@@ -468,10 +741,9 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         setState(() {
           _urgencyLocationVerified = false;
           _isUrgentFlagged = false;
-          _selectedConsequence =
-              UrgencyConsequence.standardResidential;
+          _selectedConsequence = UrgencyConsequence.standardResidential;
           _urgencyVerificationMessage =
-          'No matching high-urgency facilities found within 500 m.';
+              'No matching high-urgency facilities found within 500 m.';
         });
         return;
       }
@@ -487,8 +759,7 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       setState(() {
         _urgencyLocationVerified = true;
         _isUrgentFlagged = true;
-        _selectedConsequence =
-            UrgencyConsequence.criticalHospitalSchool;
+        _selectedConsequence = UrgencyConsequence.criticalHospitalSchool;
         _urgencyVerificationMessage =
             '${place.name} (${place.type}) verified '
             '${distance.round()} m from report location.';
@@ -502,10 +773,8 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       setState(() {
         _urgencyLocationVerified = false;
         _isUrgentFlagged = false;
-        _selectedConsequence =
-            UrgencyConsequence.standardResidential;
-        _urgencyVerificationMessage =
-        'Verification failed: $e';
+        _selectedConsequence = UrgencyConsequence.standardResidential;
+        _urgencyVerificationMessage = 'Verification failed: $e';
       });
     } finally {
       if (mounted) {
@@ -522,7 +791,7 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         const SnackBar(
           content: Text(
             'High urgency requires verified hospital or school '
-                'within 500 metres of the report location.',
+            'within 500 metres of the report location.',
           ),
         ),
       );
@@ -608,14 +877,17 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
             children: [
               Text(
                 'Unique Report ID: ${newReport.reportId}',
-                style:
-                const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
               ),
               const SizedBox(height: 6),
               Text('Linked Drain ID: ${newReport.linkedDrainId}'),
               Text('Assigned Queue: ${newReport.issueCategory.triageQueue}'),
               Text(
-                  'Preliminary Priority Score: ${newReport.estimatedPriorityScore}'),
+                'Preliminary Priority Score: ${newReport.estimatedPriorityScore}',
+              ),
               const Divider(height: 18),
               const Text(
                 '15m Same-Device Geotag Lock is now active for this coordinate to prevent duplicate spam.',
@@ -638,7 +910,9 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
   }
 
   void _showRadiusCooldownDialog(
-      CitizenReport existing, double distanceMeters) {
+    CitizenReport existing,
+    double distanceMeters,
+  ) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -674,11 +948,14 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Active Report ID: ${existing.reportId}',
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(
+                    'Active Report ID: ${existing.reportId}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   Text('Linked Drain: ${existing.linkedDrainId}'),
                   Text(
-                      'Distance from previous pin: ${distanceMeters.toStringAsFixed(1)} meters'),
+                    'Distance from previous pin: ${distanceMeters.toStringAsFixed(1)} meters',
+                  ),
                   Text('Current Status: ${existing.status.title}'),
                 ],
               ),
@@ -740,21 +1017,25 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         // 1. GEOTAG PHOTOGRAPH CARD
         Card(
           elevation: 2,
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
+                const Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
                   children: [
                     Icon(Icons.camera_alt, color: Color(0xFF0D47A1)),
-                    SizedBox(width: 8),
                     Text(
                       '1. Geotag Photograph',
-                      style:
-                      TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
@@ -763,44 +1044,59 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                   InkWell(
                     onTap: _isLoadingGps ? null : _captureGeotaggedPhoto,
                     child: Container(
-                      height: 190,
+                      constraints: const BoxConstraints(minHeight: 190),
                       width: double.infinity,
                       decoration: BoxDecoration(
                         color: const Color(0xFFECEFF1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                            color: const Color(0xFFB0BEC5), width: 1.5),
+                          color: const Color(0xFFB0BEC5),
+                          width: 1.5,
+                        ),
                       ),
                       child: _isLoadingGps
                           ? const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CircularProgressIndicator(),
-                          SizedBox(height: 12),
-                          Text(
-                              'Locking High-Accuracy GPS & Hashing Image...'),
-                        ],
-                      )
-                          : const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.add_a_photo,
-                              size: 46, color: Color(0xFF1565C0)),
-                          SizedBox(height: 8),
-                          Text(
-                            'Tap to Capture Live Geotagged Drain Photo',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF0D47A1)),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Auto-captures GPS Lat/Lng, Timestamp & SHA-256 Hash',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.black54),
-                          ),
-                        ],
-                      ),
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 12),
+                                Text(
+                                  'Locking High-Accuracy GPS & Hashing Image...',
+                                ),
+                              ],
+                            )
+                          : const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.add_a_photo,
+                                    size: 46,
+                                    color: Color(0xFF1565C0),
+                                  ),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    'Tap to Capture Live Geotagged Drain Photo',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF0D47A1),
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Auto-captures GPS Lat/Lng, Timestamp & SHA-256 Hash',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                     ),
                   )
                 else
@@ -836,15 +1132,20 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                                 children: [
                                   Row(
                                     children: [
-                                      const Icon(Icons.gps_fixed,
-                                          size: 14, color: Colors.greenAccent),
+                                      const Icon(
+                                        Icons.gps_fixed,
+                                        size: 14,
+                                        color: Colors.greenAccent,
+                                      ),
                                       const SizedBox(width: 6),
-                                      Text(
-                                        'Lat ${_latitude!.toStringAsFixed(4)}, Long ${_longitude!.toStringAsFixed(4)} (±${_gpsAccuracy!.toStringAsFixed(1)}m)',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12.5,
+                                      Expanded(
+                                        child: Text(
+                                          'Lat ${_latitude!.toStringAsFixed(4)}, Long ${_longitude!.toStringAsFixed(4)} (±${_gpsAccuracy!.toStringAsFixed(1)}m)',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 12.5,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -853,14 +1154,17 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                                   Text(
                                     'Captured: ${DateFormat('dd MMM yyyy, hh:mm:ss a').format(_capturedAt!)}',
                                     style: const TextStyle(
-                                        color: Colors.white70, fontSize: 11),
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                    ),
                                   ),
                                   Text(
                                     'SHA-256: ${_qualityResult!.sha256Hash.substring(0, 24)}...',
                                     style: const TextStyle(
-                                        color: Colors.amberAccent,
-                                        fontSize: 10.5,
-                                        fontFamily: 'monospace'),
+                                      color: Colors.amberAccent,
+                                      fontSize: 10.5,
+                                      fontFamily: 'monospace',
+                                    ),
                                   ),
                                 ],
                               ),
@@ -906,14 +1210,19 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                                 : Colors.orange.shade50,
                           ),
                           Chip(
-                            avatar: const Icon(Icons.pin_drop,
-                                size: 18, color: Color(0xFF0D47A1)),
+                            avatar: const Icon(
+                              Icons.pin_drop,
+                              size: 18,
+                              color: Color(0xFF0D47A1),
+                            ),
                             label: Text(
                               _matchedDrain != null
                                   ? 'Linked Drain: ${_matchedDrain!.drainId} (${_matchedDrain!.name})'
                                   : 'New Location: Provisional Drain Pin',
                               style: const TextStyle(
-                                  fontSize: 11.5, fontWeight: FontWeight.bold),
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             backgroundColor: const Color(0xFFE3F2FD),
                           ),
@@ -931,8 +1240,9 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         if (_latitude != null && _longitude != null)
           Card(
             elevation: 2,
-            shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(14),
               child: SizedBox(
@@ -945,7 +1255,7 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                   children: [
                     TileLayer(
                       urlTemplate:
-                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                       userAgentPackageName: 'in.drainrank.drainrank_citizen',
                     ),
                     CircleLayer(
@@ -966,8 +1276,11 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                           point: LatLng(_latitude!, _longitude!),
                           width: 40,
                           height: 40,
-                          child: const Icon(Icons.location_on,
-                              color: Colors.red, size: 36),
+                          child: const Icon(
+                            Icons.location_on,
+                            color: Colors.red,
+                            size: 36,
+                          ),
                         ),
                       ],
                     ),
@@ -981,21 +1294,25 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         // 2. ISSUE CLASSIFICATION (Updated to Flutter 3.32+ RadioGroup API)
         Card(
           elevation: 2,
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Row(
+                const Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
                   children: [
                     Icon(Icons.category, color: Color(0xFF0D47A1)),
-                    SizedBox(width: 8),
                     Text(
                       '2. Issue Classification',
-                      style:
-                      TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
@@ -1007,22 +1324,17 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                     decoration: BoxDecoration(
                       color: const Color(0xFFFFF7ED),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: const Color(0xFFF59E0B),
-                      ),
+                      border: Border.all(color: const Color(0xFFF59E0B)),
                     ),
                     child: const Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          Icons.info_outline,
-                          color: Color(0xFFB45309),
-                        ),
+                        Icon(Icons.info_outline, color: Color(0xFFB45309)),
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'AI classification is not available yet. '
-                                'Please select the issue category manually.',
+                            'Please select the issue category manually.',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
@@ -1043,20 +1355,21 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                     children: IssueCategory.values
                         .map(
                           (category) => RadioListTile<IssueCategory>(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                          category.label,
-                          style:
-                          const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: Text(
-                          'Routes to: ${category.triageQueue} (Factor weight: ${category.bScoreInput})',
-                          style: const TextStyle(fontSize: 11.5),
-                        ),
-                        value: category,
-                      ),
-                    )
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              category.label,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(
+                              'Routes to: ${category.triageQueue} (Factor weight: ${category.bScoreInput})',
+                              style: const TextStyle(fontSize: 11.5),
+                            ),
+                            value: category,
+                          ),
+                        )
                         .toList(),
                   ),
                 ),
@@ -1069,52 +1382,69 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         // 3. URGENCY FLAG & V-CONSEQUENCE SELECTOR
         Card(
           elevation: 2,
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  secondary: Icon(
-                    Icons.warning_amber_rounded,
-                    color: _isUrgentFlagged
-                        ? Colors.red.shade700
-                        : Colors.grey.shade700,
-                  ),
-                  title: const Text(
-                    '3. High-Urgency Flag',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: const Text(
-                    'Flag critical access routes, hospital roads, or active overflow hazards',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  value: _isUrgentFlagged,
-                  onChanged: (val) {
-                    if (val && !_urgencyLocationVerified) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Verify nearby facilities before enabling high urgency.',
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, right: 8),
+                      child: Icon(
+                        Icons.warning_amber_rounded,
+                        color: _isUrgentFlagged
+                            ? Colors.red.shade700
+                            : Colors.grey.shade700,
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '3. High-Urgency Flag',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
-                      );
-                      return;
-                    }
+                          const Text(
+                            'Flag critical access routes, hospital roads, or active overflow hazards',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: _isUrgentFlagged,
+                      onChanged: (val) {
+                        if (val && !_urgencyLocationVerified) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Verify nearby facilities before enabling high urgency.',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
 
-                    setState(() {
-                      _isUrgentFlagged = val;
+                        setState(() {
+                          _isUrgentFlagged = val;
 
-                      _selectedConsequence = val
-                          ? UrgencyConsequence.criticalHospitalSchool
-                          : UrgencyConsequence.standardResidential;
-                    });
-                  },
+                          _selectedConsequence = val
+                              ? UrgencyConsequence.criticalHospitalSchool
+                              : UrgencyConsequence.standardResidential;
+                        });
+                      },
+                    ),
+                  ],
                 ),
-
 
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -1129,10 +1459,12 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                               : _verifyHighUrgencyLocation,
                           icon: _isCheckingUrgency
                               ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
                               : const Icon(Icons.location_searching),
                           label: Text(
                             _isCheckingUrgency
@@ -1177,24 +1509,30 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<UrgencyConsequence>(
+                  isExpanded: true,
                   key: ValueKey(_selectedConsequence),
                   initialValue: _selectedConsequence,
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                   items: UrgencyConsequence.values
                       .map(
                         (u) => DropdownMenuItem(
-                      value: u,
-                      child: Text(
-                        '${u.label} (V=${u.vWeight})',
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                  )
+                          value: u,
+                          child: Text(
+                            '${u.label} (V=${u.vWeight})',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      )
                       .toList(),
                   onChanged: (val) {
                     if (val != null) {
@@ -1218,8 +1556,9 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         // 4. DESCRIPTION & SUBMIT BUTTON
         Card(
           elevation: 2,
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
@@ -1234,10 +1573,10 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                   controller: _descController,
                   maxLines: 2,
                   decoration: InputDecoration(
-                    hintText:
-                    'e.g., Drain is completely blocked with plastic garbage near Hospital Gate 2',
+                    hintText: 'e.g., Drain is completely blocked with plastic garbage near Hospital Gate 2',
                     border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -1252,7 +1591,9 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                           ? 'Validating Geotag & Radius...'
                           : 'Submit Geotagged Report',
                       style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
@@ -1309,8 +1650,11 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.assignment_late_outlined,
-                  size: 64, color: Colors.blueGrey.shade300),
+              Icon(
+                Icons.assignment_late_outlined,
+                size: 64,
+                color: Colors.blueGrey.shade300,
+              ),
               const SizedBox(height: 12),
               const Text(
                 'No Reports Submitted Yet',
@@ -1333,13 +1677,17 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           color: const Color(0xFFE3F2FD),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            runSpacing: 4,
             children: [
               Text(
                 'Logged Reports (${_reports.length}) • Tap Status to Simulate Next Stage',
-                style:
-                const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               TextButton.icon(
                 onPressed: () async {
@@ -1362,18 +1710,23 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
                 margin: const EdgeInsets.only(bottom: 14),
                 elevation: 2,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
+                  borderRadius: BorderRadius.circular(14),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        runSpacing: 6,
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFF0A2540),
                               borderRadius: BorderRadius.circular(6),
@@ -1390,13 +1743,17 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
                           if (r.isUrgentFlagged)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.red.shade100,
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 'URGENT • V=${r.urgencyConsequence.vWeight}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   color: Colors.red.shade900,
                                   fontWeight: FontWeight.bold,
@@ -1433,20 +1790,24 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
                                 Text(
                                   '${r.issueCategory.label} • ${r.linkedDrainId}',
                                   style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
                                 ),
                                 Text(
                                   'GPS: ${r.latitude.toStringAsFixed(4)}, ${r.longitude.toStringAsFixed(4)}',
                                   style: const TextStyle(
-                                      fontSize: 12, color: Colors.black54),
+                                    fontSize: 12,
+                                    color: Colors.black54,
+                                  ),
                                 ),
                                 Text(
                                   'Triage: ${r.issueCategory.triageQueue} (Score: ${r.estimatedPriorityScore})',
                                   style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFF0D47A1),
-                                      fontWeight: FontWeight.w600),
+                                    fontSize: 12,
+                                    color: Color(0xFF0D47A1),
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ],
                             ),
@@ -1457,7 +1818,9 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
                       const Text(
                         'Step 8: Live Municipal Workflow Status',
                         style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 13),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       ...ReportWorkflowStatus.values.map((stage) {
@@ -1484,8 +1847,9 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
                                     fontWeight: isCurrent
                                         ? FontWeight.bold
                                         : FontWeight.normal,
-                                    color:
-                                    isDone ? Colors.black87 : Colors.grey,
+                                    color: isDone
+                                        ? Colors.black87
+                                        : Colors.grey,
                                     fontSize: 13,
                                   ),
                                 ),
@@ -1521,18 +1885,13 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
 class DrainRankUtilityPage extends StatefulWidget {
   final String title;
 
-  const DrainRankUtilityPage({
-    super.key,
-    required this.title,
-  });
+  const DrainRankUtilityPage({super.key, required this.title});
 
   @override
-  State<DrainRankUtilityPage> createState() =>
-      _DrainRankUtilityPageState();
+  State<DrainRankUtilityPage> createState() => _DrainRankUtilityPageState();
 }
 
-class _DrainRankUtilityPageState
-    extends State<DrainRankUtilityPage> {
+class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
   bool notificationsEnabled = true;
   bool locationEnabled = true;
   bool confirmationEnabled = true;
@@ -1542,9 +1901,7 @@ class _DrainRankUtilityPageState
     final isSettings = widget.title == 'Settings';
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-      ),
+      appBar: AppBar(title: Text(widget.title)),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -1567,13 +1924,9 @@ class _DrainRankUtilityPageState
               child: Column(
                 children: [
                   SwitchListTile(
-                    secondary: const Icon(
-                      Icons.notifications_active_outlined,
-                    ),
+                    secondary: const Icon(Icons.notifications_active_outlined),
                     title: const Text('Notifications'),
-                    subtitle: const Text(
-                      'Notification preference',
-                    ),
+                    subtitle: const Text('Notification preference'),
                     value: notificationsEnabled,
                     onChanged: (value) {
                       setState(() => notificationsEnabled = value);
@@ -1581,13 +1934,9 @@ class _DrainRankUtilityPageState
                   ),
                   const Divider(height: 1),
                   SwitchListTile(
-                    secondary: const Icon(
-                      Icons.location_on_outlined,
-                    ),
+                    secondary: const Icon(Icons.location_on_outlined),
                     title: const Text('Location services'),
-                    subtitle: const Text(
-                      'Allow location-based reporting',
-                    ),
+                    subtitle: const Text('Allow location-based reporting'),
                     value: locationEnabled,
                     onChanged: (value) {
                       setState(() => locationEnabled = value);
@@ -1595,13 +1944,9 @@ class _DrainRankUtilityPageState
                   ),
                   const Divider(height: 1),
                   SwitchListTile(
-                    secondary: const Icon(
-                      Icons.check_circle_outline,
-                    ),
+                    secondary: const Icon(Icons.check_circle_outline),
                     title: const Text('Submission confirmation'),
-                    subtitle: const Text(
-                      'Show report submission feedback',
-                    ),
+                    subtitle: const Text('Show report submission feedback'),
                     value: confirmationEnabled,
                     onChanged: (value) {
                       setState(() => confirmationEnabled = value);
@@ -1613,12 +1958,9 @@ class _DrainRankUtilityPageState
             const SizedBox(height: 12),
             const Text(
               'These preferences currently apply only to this screen. '
-                  'Persisting them and connecting them to app behaviour '
-                  'will be a separate step.',
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFF64748B),
-              ),
+              'Persisting them and connecting them to app behaviour '
+              'will be a separate step.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
             ),
           ] else if (widget.title == 'Saved Locations') ...[
             const Icon(
@@ -1629,31 +1971,23 @@ class _DrainRankUtilityPageState
             const SizedBox(height: 12),
             const Text(
               'No saved locations yet',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             const Text(
               'Saved reporting locations will appear here '
-                  'when location saving is implemented.',
+              'when location saving is implemented.',
             ),
           ] else if (widget.title == 'Help & Support') ...[
             const Text(
               'How can we help?',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 12),
             const ListTile(
               leading: Icon(Icons.camera_alt_outlined),
               title: Text('Reporting a blocked drain'),
-              subtitle: Text(
-                'Capture a clear photo and include the location.',
-              ),
+              subtitle: Text('Capture a clear photo and include the location.'),
             ),
             const ListTile(
               leading: Icon(Icons.track_changes_outlined),
@@ -1671,22 +2005,17 @@ class _DrainRankUtilityPageState
             const SizedBox(height: 12),
             const Text(
               'DrainRank',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-              ),
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             const Text(
               'Cleaner Drains, Safer Cities',
-              style: TextStyle(
-                color: Color(0xFF64748B),
-              ),
+              style: TextStyle(color: Color(0xFF64748B)),
             ),
             const SizedBox(height: 16),
             const Text(
               'A citizen reporting interface for documenting '
-                  'drainage issues and tracking their status.',
+              'drainage issues and tracking their status.',
             ),
           ] else ...[
             const Text('This page is not available yet.'),

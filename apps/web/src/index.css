@@ -51,6 +51,129 @@ select {
   background: #f8fafc;
 }
 
+.authenticated-shell {
+  min-height: 100vh;
+}
+
+.auth-session-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-height: 42px;
+  padding: 6px 18px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+}
+
+.auth-session-bar button {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: #fff;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.backend-gate {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: linear-gradient(180deg, #edf3f8 0%, #f8fafc 100%);
+}
+
+.backend-login {
+  display: grid;
+  width: min(100%, 440px);
+  gap: 16px;
+}
+
+.backend-login h1,
+.backend-login p {
+  margin: 0;
+}
+
+.backend-login label {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.backend-login input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  padding: 11px 12px;
+  color: #0f172a;
+  background: #fff;
+}
+
+.backend-error {
+  color: #b91c1c;
+  overflow-wrap: anywhere;
+}
+
+.backend-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #cbd5e1;
+  border-top-color: #0f766e;
+  border-radius: 50%;
+  animation: backend-spin 0.8s linear infinite;
+}
+
+.backend-sync-status {
+  max-width: 42%;
+  overflow-wrap: anywhere;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.backend-sync-status.error {
+  color: #b91c1c;
+}
+
+.backend-sync-status button {
+  display: block;
+  margin-top: 4px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+@keyframes backend-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 720px) {
+  .auth-session-bar {
+    padding: 6px 8px;
+  }
+
+  .auth-session-bar span {
+    max-width: 42vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .backend-sync-status {
+    display: none;
+  }
+}
+
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;

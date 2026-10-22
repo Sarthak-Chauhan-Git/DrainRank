@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import {
   BrowserRouter,
   NavLink,
@@ -47,22 +47,21 @@ import {
   Droplets,
   Eye,
   Gauge,
-  LogOut,
   Mail,
   MapPinned,
   PanelLeftClose,
   PanelLeftOpen,
   ShieldAlert,
-  RefreshCw,
   Search,
   ShieldCheck,
   Settings,
-  Trash2,
   UsersRound,
   Wrench,
 } from "lucide-react";
-import { createSeedData } from "./data";
-import { localDataProvider } from "./dataProvider";
+import { createEmptyData } from "./emptyState";
+import { loadDashboardState, saveDashboardState } from "./dataProvider";
+import { uploadImageToCloudinary } from "./cloudinary";
+import { DashboardSessionContext } from "./dashboardSession";
 import GlobalDrainAssistant from "./GlobalDrainAssistant";
 import MonitoringIntelligencePage from "./MonitoringIntelligencePage";
 
@@ -98,6 +97,7 @@ export interface DrainRecord {
   evidenceUncertainty?: number;
   condition: string;
   evidenceStatus: string;
+  evidencePhoto?: string;
   lastObservation: string;
   assignedCrew?: string;
   assignedCrews?: string[];
@@ -264,6 +264,10 @@ export interface AppState {
   creditPools: CreditPool[];
   creditAllocations: CreditAllocation[];
   creditAudits: CreditAudit[];
+  preferences?: {
+    notifications: boolean;
+    dailyDigest: boolean;
+  };
 }
 
 interface ReportForm {
@@ -526,10 +530,14 @@ function App() {
 function DrainRankApp() {
   const location = useLocation();
   const navigate = useNavigate();
+  const dashboardSession = useContext(DashboardSessionContext);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [appState, setAppState] = useState<AppState>(() =>
-    localDataProvider.load(),
-  );
+  const [appState, setAppState] = useState<AppState>(createEmptyData);
+  const [dataReady, setDataReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [submittedReportId, setSubmittedReportId] = useState<string | null>(
     null,
@@ -537,8 +545,33 @@ function DrainRankApp() {
   void submittedReportId;
 
   useEffect(() => {
-    localDataProvider.save(appState);
-  }, [appState]);
+    let active = true;
+    void loadDashboardState()
+      .then((state) => {
+        if (!active) return;
+        setAppState(state);
+        setDataReady(true);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setLoadError(String(error));
+      });
+    return () => {
+      active = false;
+    };
+  }, [reloadToken]);
+
+  useEffect(() => {
+    if (!dataReady) return;
+    const timeout = window.setTimeout(() => {
+      setIsSaving(true);
+      void saveDashboardState(appState)
+        .then(() => setSaveError(null))
+        .catch((error: unknown) => setSaveError(String(error)))
+        .finally(() => setIsSaving(false));
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [appState, dataReady]);
 
   useEffect(() => {
     if (!toast) return;
@@ -670,6 +703,7 @@ function DrainRankApp() {
       visibleBlockage: payload.estimatedBlockage,
       condition: payload.observedCondition,
       evidenceStatus: "Inspection complete",
+      evidencePhoto: payload.photo,
       lastObservation: new Date().toISOString(),
       lastUpdated: new Date().toISOString(),
       reason: payload.notes || drain.reason,
@@ -1111,20 +1145,30 @@ function DrainRankApp() {
     setToast(`Password reset link sent to ${worker.phoneNumber ?? "the registered phone"}.`);
   };
 
-  const resetData = () => {
-    const initialData = createSeedData();
-    localDataProvider.save(initialData);
-    setAppState(initialData);
-    setSubmittedReportId(null);
-    setToast("Initial synthetic dataset restored.");
-  };
-
-  const clearLocalData = () => {
-    localDataProvider.clear();
-    setAppState(createSeedData());
-    setSubmittedReportId(null);
-    setToast("Local data cleared and dashboard data restored.");
-  };
+  if (loadError) {
+    return (
+      <main className="backend-gate">
+        <section className="backend-login panel">
+          <h1>Could not load dashboard data</h1>
+          <p className="backend-error">{loadError}</p>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => {
+              setDataReady(false);
+              setLoadError(null);
+              setReloadToken((current) => current + 1);
+            }}
+          >
+            Retry connection
+          </button>
+        </section>
+      </main>
+    );
+  }
+  if (!dataReady) {
+    return <main className="backend-gate">Loading municipal records…</main>;
+  }
 
   const totalDrains = appState.drains.length;
   const openIncidents = appState.drains.filter(
@@ -1244,6 +1288,24 @@ function DrainRankApp() {
           <div>
             <div className="eyebrow">Municipal drainage operations</div>
             <h1>Municipal Drain Intelligence</h1>
+          </div>
+          <div
+            className={`backend-sync-status ${saveError ? "error" : "synced"}`}
+            role="status"
+          >
+            {saveError
+              ? `Save failed: ${saveError}`
+              : isSaving
+                ? "Saving to Supabase…"
+                : "Connected to Supabase"}
+            {saveError ? (
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+              >
+                Reload server data
+              </button>
+            ) : null}
           </div>
         </header>
 
@@ -1463,13 +1525,21 @@ function DrainRankApp() {
           />
 
           <Route
-            path="/administration"
-            element={
-              <AdministrationPage
-                onReset={resetData}
-                onClear={clearLocalData}
-              />
-            }
+          path="/administration"
+          element={
+            <AdministrationPage
+              email={dashboardSession?.email ?? "Signed-in administrator"}
+              preferences={
+                appState.preferences ?? {
+                  notifications: true,
+                  dailyDigest: true,
+                }
+              }
+              onPreferencesChange={(preferences) =>
+                setAppState((previous) => ({ ...previous, preferences }))
+              }
+            />
+          }
           />
           <Route
             path="/settings"
@@ -2210,6 +2280,8 @@ function ReportPage({
     urgent: false,
   });
   const [photoPreview, setPhotoPreview] = useState<string | undefined>();
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -2232,12 +2304,21 @@ function ReportPage({
     setPhotoPreview(undefined);
   };
 
-  const handlePhotoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhotoPreview(String(reader.result ?? ""));
-    reader.readAsDataURL(file);
+    setPhotoUploading(true);
+    setPhotoError(null);
+    try {
+      setPhotoPreview(await uploadImageToCloudinary(file));
+    } catch (error) {
+      setPhotoPreview(undefined);
+      setPhotoError(String(error));
+    } finally {
+      setPhotoUploading(false);
+    }
   };
 
   if (submittedReportId) {
@@ -2366,6 +2447,12 @@ function ReportPage({
             Photo upload
             <input type="file" accept="image/*" onChange={handlePhotoUpload} />
           </label>
+          {photoUploading ? (
+            <p className="full-width">Uploading photo securely…</p>
+          ) : null}
+          {photoError ? (
+            <p className="backend-error full-width">{photoError}</p>
+          ) : null}
 
           {photoPreview ? (
             <div className="photo-preview full-width">
@@ -2393,8 +2480,12 @@ function ReportPage({
           </label>
 
           <div className="button-row full-width">
-            <button type="submit" className="btn-primary">
-              Submit report
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={photoUploading}
+            >
+              {photoUploading ? "Uploading photo…" : "Submit report"}
             </button>
           </div>
         </form>
@@ -2665,8 +2756,11 @@ function InspectionModal({
   );
   const [notes, setNotes] = useState("");
   const [photo, setPhoto] = useState<string | undefined>();
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   const submit = () => {
+    if (photoUploading) return;
     onSubmit({
       drainId: drain.id,
       observedCondition,
@@ -2728,19 +2822,37 @@ function InspectionModal({
             <input
               type="file"
               accept="image/*"
-              onChange={(event) => {
+              onChange={async (event) => {
                 const file = event.target.files?.[0];
                 if (!file) return;
-                const reader = new FileReader();
-                reader.onload = () => setPhoto(String(reader.result ?? ""));
-                reader.readAsDataURL(file);
+                setPhotoUploading(true);
+                setPhotoError(null);
+                try {
+                  setPhoto(await uploadImageToCloudinary(file));
+                } catch (error) {
+                  setPhoto(undefined);
+                  setPhotoError(String(error));
+                } finally {
+                  setPhotoUploading(false);
+                }
               }}
             />
           </label>
+          {photoUploading ? (
+            <p className="full-width">Uploading photo securely…</p>
+          ) : null}
+          {photoError ? (
+            <p className="backend-error full-width">{photoError}</p>
+          ) : null}
 
           <div className="button-row full-width">
-            <button type="button" className="btn-primary" onClick={submit}>
-              Submit inspection
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={submit}
+              disabled={photoUploading}
+            >
+              {photoUploading ? "Uploading photo…" : "Submit inspection"}
             </button>
           </div>
         </div>
@@ -5695,20 +5807,16 @@ function CrewCreditsPage({
 void CrewCreditsPage;
 
 function AdministrationPage({
-  onReset,
-  onClear,
+  email,
+  preferences,
+  onPreferencesChange,
 }: {
-  onReset: () => void;
-  onClear: () => void;
+  email: string;
+  preferences: { notifications: boolean; dailyDigest: boolean };
+  onPreferencesChange: (
+    preferences: { notifications: boolean; dailyDigest: boolean },
+  ) => void;
 }) {
-  const [accountName, setAccountName] = useState("Aarav Mehta");
-  const [accountEmail, setAccountEmail] = useState(
-    "aarav.mehta@municipal.gov.in",
-  );
-  const [phone, setPhone] = useState("+91 98765 43210");
-  const [notifications, setNotifications] = useState(true);
-  const [digest, setDigest] = useState(true);
-
   return (
     <div className="page-stack settings-page">
       <div className="settings-heading">
@@ -5736,40 +5844,22 @@ function AdministrationPage({
           </div>
           <div className="settings-form-grid">
             <label>
-              Full name
-              <input
-                value={accountName}
-                onChange={(event) => setAccountName(event.target.value)}
-              />
-            </label>
-            <label>
               Official email
               <span className="settings-input-icon">
                 <Mail size={15} />
-                <input
-                  type="email"
-                  value={accountEmail}
-                  onChange={(event) => setAccountEmail(event.target.value)}
-                />
+                <input type="email" value={email} readOnly />
               </span>
             </label>
             <label>
-              Phone number
-              <input
-                value={phone}
-                onChange={(event) => setPhone(event.target.value)}
-              />
-            </label>
-            <label>
               Current role
-              <input value="Ward Officer" readOnly />
+              <input value="Dashboard administrator" readOnly />
             </label>
           </div>
           <div className="settings-inline-note">
             <ShieldCheck size={16} />
             <span>
-              Account verification and password management will be connected to
-              the backend login service.
+              Authentication and access are verified by Supabase before
+              dashboard data is loaded.
             </span>
           </div>
         </section>
@@ -5825,9 +5915,9 @@ function AdministrationPage({
               type="button"
               className="btn-secondary"
               disabled
-              title="Available when user administration is connected to the backend"
+              title="Manage dashboard administrator access in Supabase."
             >
-              <UsersRound size={15} /> Add user
+              <UsersRound size={15} /> Manage access in Supabase
             </button>
           </div>
           <div className="user-role-table">
@@ -5839,32 +5929,12 @@ function AdministrationPage({
             </div>
             <div className="user-role-row">
               <span>
-                <strong>{accountName}</strong>
-                <small>{accountEmail}</small>
+                <strong>{email}</strong>
+                <small>Verified Supabase account</small>
               </span>
               <span>Drainage Operations</span>
-              <span>Ward Officer</span>
-              <span className="status-chip success">Manage assigned ward</span>
-            </div>
-            <div className="user-role-row">
-              <span>
-                <strong>Priya Sharma</strong>
-                <small>priya.sharma@municipal.gov.in</small>
-              </span>
-              <span>Field Inspection</span>
-              <span>Inspection Supervisor</span>
-              <span className="status-chip info">Inspection and evidence</span>
-            </div>
-            <div className="user-role-row">
-              <span>
-                <strong>Rohan Verma</strong>
-                <small>rohan.verma@municipal.gov.in</small>
-              </span>
-              <span>Maintenance</span>
-              <span>Operations Manager</span>
-              <span className="status-chip warning">
-                Queues and work orders
-              </span>
+              <span>Dashboard administrator</span>
+              <span className="status-chip success">Authorized</span>
             </div>
           </div>
           <div className="role-permissions">
@@ -5894,8 +5964,13 @@ function AdministrationPage({
             </span>
             <input
               type="checkbox"
-              checked={notifications}
-              onChange={(event) => setNotifications(event.target.checked)}
+              checked={preferences.notifications}
+              onChange={(event) =>
+                onPreferencesChange({
+                  ...preferences,
+                  notifications: event.target.checked,
+                })
+              }
             />
           </label>
           <label className="settings-toggle">
@@ -5905,8 +5980,13 @@ function AdministrationPage({
             </span>
             <input
               type="checkbox"
-              checked={digest}
-              onChange={(event) => setDigest(event.target.checked)}
+              checked={preferences.dailyDigest}
+              onChange={(event) =>
+                onPreferencesChange({
+                  ...preferences,
+                  dailyDigest: event.target.checked,
+                })
+              }
             />
           </label>
         </section>
@@ -5914,56 +5994,23 @@ function AdministrationPage({
         <section className="panel settings-panel">
           <div className="settings-section-heading">
             <div>
-              <h3>Data and session</h3>
-              <p className="panel-note">Local prototype data controls.</p>
+              <h3>Backend data and session</h3>
+              <p className="panel-note">
+                Dashboard records are loaded from and saved to the authorized
+                Supabase workspace.
+              </p>
             </div>
-            <ShieldAlert size={20} color="#D97706" />
-          </div>
-          <div className="settings-actions">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Reset all local records to the initial synthetic dataset?",
-                  )
-                )
-                  onReset();
-              }}
-            >
-              <RefreshCw size={16} /> Reset initial data
-            </button>
-            <button
-              type="button"
-              className="btn-secondary alt"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Clear all local data? This will restore the seeded scenario.",
-                  )
-                )
-                  onClear();
-              }}
-            >
-              <Trash2 size={16} /> Clear local data
-            </button>
+            <ShieldCheck size={20} color="#0F766E" />
           </div>
           <div className="settings-logout">
             <div>
-              <strong>Sign out</strong>
+              <strong>Session security</strong>
               <small>
-                Logout will be enabled after backend authentication is added.
+                Your session uses Supabase authentication and row-level
+                authorization. Sign out from the secure session control above
+                the dashboard.
               </small>
             </div>
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled
-              title="Login and logout will be connected to the backend"
-            >
-              <LogOut size={16} /> Logout
-            </button>
           </div>
         </section>
       </div>

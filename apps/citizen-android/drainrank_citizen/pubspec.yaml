@@ -45,6 +45,7 @@ dependencies:
   latlong2: ^0.10.1
   intl: ^0.20.3
   image: ^4.12.0
+  supabase_flutter: ^2.18.3
 
 dev_dependencies:
   flutter_test:
