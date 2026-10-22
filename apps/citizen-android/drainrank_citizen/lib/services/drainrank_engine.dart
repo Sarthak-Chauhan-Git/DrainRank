@@ -38,8 +38,9 @@ class ImageQualityResult {
 }
 
 class DrainRankEngine {
-  static const String _storageKeyReports = 'drainrank_local_reports_v1';
   static const String _storageKeyDeviceId = 'drainrank_device_id_v1';
+  static String _reportsStorageKey(String userId) =>
+      'drainrank_local_reports_v1_$userId';
 
   /// 1. Persistent Hardware Device Fingerprint (for Same-Device Radius Lock)
   static Future<String> getDeviceId() async {
@@ -56,8 +57,11 @@ class DrainRankEngine {
       }
     } catch (_) {}
 
-    final hashedDevice =
-    sha256.convert(rawId.codeUnits).toString().substring(0, 16).toUpperCase();
+    final hashedDevice = sha256
+        .convert(rawId.codeUnits)
+        .toString()
+        .substring(0, 16)
+        .toUpperCase();
     await prefs.setString(_storageKeyDeviceId, 'DEV-$hashedDevice');
     return 'DEV-$hashedDevice';
   }
@@ -73,7 +77,9 @@ class DrainRankEngine {
   static Future<Position> acquireGeotagPosition() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      throw Exception('Location services (GPS) are disabled. Please turn on GPS.');
+      throw Exception(
+        'Location services (GPS) are disabled. Please turn on GPS.',
+      );
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
@@ -84,7 +90,9 @@ class DrainRankEngine {
       }
     }
     if (permission == LocationPermission.deniedForever) {
-      throw Exception('Location permissions are permanently denied in Settings.');
+      throw Exception(
+        'Location permissions are permanently denied in Settings.',
+      );
     }
 
     return await Geolocator.getCurrentPosition(
@@ -124,8 +132,9 @@ class DrainRankEngine {
     required double currentLat,
     required double currentLng,
     required String deviceId,
+    required String userId,
   }) async {
-    final existingReports = await getSavedReports();
+    final existingReports = await getSavedReports(userId: userId);
     final now = DateTime.now();
 
     for (final report in existingReports) {
@@ -202,7 +211,8 @@ class DrainRankEngine {
       sha256Hash: sha256Hash,
       luminance: avgLum,
       isValid: true,
-      statusMessage: 'Valid Image • Quality Verified (Lum ${avgLum.toStringAsFixed(0)})',
+      statusMessage:
+          'Valid Image • Quality Verified (Lum ${avgLum.toStringAsFixed(0)})',
     );
   }
 
@@ -216,62 +226,42 @@ class DrainRankEngine {
     final double vValue = urgency.vWeight;
     // M_i = 100 * (0.40 * B_i + 0.35 * A_i + 0.25 * V_i)
     final double bOrU = category.bScoreInput;
-    final double rawScore = 100.0 * (0.40 * bOrU + 0.35 * aProxy + 0.25 * vValue);
+    final double rawScore =
+        100.0 * (0.40 * bOrU + 0.35 * aProxy + 0.25 * vValue);
     return double.parse(rawScore.toStringAsFixed(1));
   }
 
-  /// 8. Local Persistence for Offline Demo & Step 8 Status Tracking
-  static Future<List<CitizenReport>> getSavedReports() async {
+  /// 8. Account-scoped local cache for offline report tracking.
+  static Future<List<CitizenReport>> getSavedReports({
+    required String userId,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_storageKeyReports);
+    final raw = prefs.getString(_reportsStorageKey(userId));
     if (raw == null || raw.isEmpty) return [];
     return CitizenReport.decodeList(raw);
   }
 
-  static Future<void> saveReport(CitizenReport report) async {
+  static Future<void> saveReport(
+    CitizenReport report, {
+    required String userId,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
-    final current = await getSavedReports();
+    final current = await getSavedReports(userId: userId);
     current.insert(0, report);
-    await prefs.setString(_storageKeyReports, CitizenReport.encodeList(current));
+    await prefs.setString(
+      _reportsStorageKey(userId),
+      CitizenReport.encodeList(current),
+    );
   }
 
-  static Future<void> advanceDemoStatus(String reportId) async {
+  static Future<void> cacheReports(
+    List<CitizenReport> reports, {
+    required String userId,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
-    final current = await getSavedReports();
-    final updated = current.map((r) {
-      if (r.reportId == reportId) {
-        final nextIndex =
-            (r.status.stepIndex + 1) % ReportWorkflowStatus.values.length;
-        return CitizenReport(
-          reportId: r.reportId,
-          deviceId: r.deviceId,
-          linkedDrainId: r.linkedDrainId,
-          latitude: r.latitude,
-          longitude: r.longitude,
-          gpsAccuracyMeters: r.gpsAccuracyMeters,
-          capturedAt: r.capturedAt,
-          uploadedAt: r.uploadedAt,
-          imagePath: r.imagePath,
-          imageSha256Hash: r.imageSha256Hash,
-          imageQualityPassed: r.imageQualityPassed,
-          imageLuminance: r.imageLuminance,
-          issueCategory: r.issueCategory,
-          aiSuggestedCategory: r.aiSuggestedCategory,
-          aiConfidence: r.aiConfidence,
-          isUrgentFlagged: r.isUrgentFlagged,
-          urgencyConsequence: r.urgencyConsequence,
-          description: r.description,
-          status: ReportWorkflowStatus.values[nextIndex],
-          estimatedPriorityScore: r.estimatedPriorityScore,
-        );
-      }
-      return r;
-    }).toList();
-    await prefs.setString(_storageKeyReports, CitizenReport.encodeList(updated));
-  }
-
-  static Future<void> clearAllDemoReports() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_storageKeyReports);
+    await prefs.setString(
+      _reportsStorageKey(userId),
+      CitizenReport.encodeList(reports),
+    );
   }
 }

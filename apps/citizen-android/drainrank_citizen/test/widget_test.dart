@@ -13,13 +13,13 @@ void main() {
   });
 
   testWidgets(
-    'phone auth offers sign-in and account creation without overflow',
+    'email auth offers sign-in and account creation without overflow',
     (tester) async {
       await _setSmallViewport(tester);
-      await tester.pumpWidget(_scaledApp(const CitizenPhoneAuthPage()));
+      await tester.pumpWidget(_scaledApp(const CitizenEmailAuthPage()));
 
       expect(find.text('Citizen sign in'), findsOneWidget);
-      expect(find.text('Phone number'), findsOneWidget);
+      expect(find.text('Email'), findsOneWidget);
       expect(tester.takeException(), isNull);
 
       await tester.tap(find.text('Create account'));
@@ -93,7 +93,7 @@ void main() {
     await tester.pumpWidget(_scaledApp(const TrackStatusTab()));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Logged Reports (1)'), findsOneWidget);
+    expect(find.textContaining('Your Supabase reports (1)'), findsOneWidget);
     expect(find.textContaining('URGENT'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

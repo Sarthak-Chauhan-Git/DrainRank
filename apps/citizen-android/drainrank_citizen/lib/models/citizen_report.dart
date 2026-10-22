@@ -127,6 +127,7 @@ class CitizenReport {
   final DateTime capturedAt; // FR-02 separate capture timestamp
   final DateTime uploadedAt; // FR-02 separate upload timestamp
   final String imagePath;
+  final String? imageUrl;
   final String imageSha256Hash; // Section 3.3 integrity hash
   final bool imageQualityPassed;
   final double imageLuminance;
@@ -149,6 +150,7 @@ class CitizenReport {
     required this.capturedAt,
     required this.uploadedAt,
     required this.imagePath,
+    this.imageUrl,
     required this.imageSha256Hash,
     required this.imageQualityPassed,
     required this.imageLuminance,
@@ -172,6 +174,7 @@ class CitizenReport {
     'captured_at': capturedAt.toIso8601String(),
     'uploaded_at': uploadedAt.toIso8601String(),
     'image_path': imagePath,
+    'image_url': imageUrl,
     'image_sha256_hash': imageSha256Hash,
     'image_quality_passed': imageQualityPassed,
     'image_luminance': imageLuminance,
@@ -195,27 +198,28 @@ class CitizenReport {
     capturedAt: DateTime.parse(json['captured_at'] as String),
     uploadedAt: DateTime.parse(json['uploaded_at'] as String),
     imagePath: json['image_path'] as String,
+    imageUrl: json['image_url'] as String?,
     imageSha256Hash: json['image_sha256_hash'] as String,
     imageQualityPassed: json['image_quality_passed'] as bool,
     imageLuminance: (json['image_luminance'] as num).toDouble(),
     issueCategory: IssueCategory.values.firstWhere(
-          (e) => e.name == json['issue_category'],
+      (e) => e.name == json['issue_category'],
       orElse: () => IssueCategory.blockedDrain,
     ),
     aiSuggestedCategory: json['ai_suggested_category'] as String?,
     aiConfidence: (json['ai_confidence'] as num?)?.toDouble(),
     isUrgentFlagged: json['is_urgent_flagged'] as bool,
     urgencyConsequence: UrgencyConsequence.values.firstWhere(
-          (e) => e.name == json['urgency_consequence'],
+      (e) => e.name == json['urgency_consequence'],
       orElse: () => UrgencyConsequence.standardResidential,
     ),
     description: json['description'] as String,
     status: ReportWorkflowStatus.values.firstWhere(
-          (e) => e.name == json['status'],
+      (e) => e.name == json['status'],
       orElse: () => ReportWorkflowStatus.complaintReceived,
     ),
-    estimatedPriorityScore:
-    (json['estimated_priority_score'] as num).toDouble(),
+    estimatedPriorityScore: (json['estimated_priority_score'] as num)
+        .toDouble(),
   );
 
   static String encodeList(List<CitizenReport> reports) =>

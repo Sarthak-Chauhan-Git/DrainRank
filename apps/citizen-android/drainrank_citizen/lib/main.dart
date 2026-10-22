@@ -159,40 +159,41 @@ class _CitizenAuthGateState extends State<CitizenAuthGate> {
 
   @override
   Widget build(BuildContext context) =>
-      _signedIn ? const DrainRankHomeShell() : const CitizenPhoneAuthPage();
+      _signedIn ? const DrainRankHomeShell() : const CitizenEmailAuthPage();
 }
 
 enum _AuthMode { signIn, signUp }
 
-class CitizenPhoneAuthPage extends StatefulWidget {
-  const CitizenPhoneAuthPage({super.key});
+class CitizenEmailAuthPage extends StatefulWidget {
+  const CitizenEmailAuthPage({super.key});
 
   @override
-  State<CitizenPhoneAuthPage> createState() => _CitizenPhoneAuthPageState();
+  State<CitizenEmailAuthPage> createState() => _CitizenEmailAuthPageState();
 }
 
-class _CitizenPhoneAuthPageState extends State<CitizenPhoneAuthPage> {
-  final _phoneController = TextEditingController();
-  final _codeController = TextEditingController();
+class _CitizenEmailAuthPageState extends State<CitizenEmailAuthPage> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   _AuthMode _mode = _AuthMode.signIn;
-  bool _codeSent = false;
   bool _busy = false;
   String? _error;
 
   @override
   void dispose() {
-    _phoneController.dispose();
-    _codeController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
-  Future<void> _sendCode() async {
-    final phone = _phoneController.text.trim();
-    if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
-      setState(
-        () => _error =
-            'Enter your phone number with country code, e.g. +919876543210.',
-      );
+  Future<void> _authenticate() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+      setState(() => _error = 'Enter a valid email address.');
+      return;
+    }
+    if (password.length < 8) {
+      setState(() => _error = 'Password must be at least 8 characters.');
       return;
     }
     setState(() {
@@ -200,41 +201,22 @@ class _CitizenPhoneAuthPageState extends State<CitizenPhoneAuthPage> {
       _error = null;
     });
     try {
-      await Supabase.instance.client.auth.signInWithOtp(
-        phone: phone,
-        shouldCreateUser: _mode == _AuthMode.signUp,
-      );
-      if (mounted) setState(() => _codeSent = true);
-    } catch (error) {
-      if (mounted) {
-        setState(() => _error = 'Could not send the verification code: $error');
+      final auth = Supabase.instance.client.auth;
+      if (_mode == _AuthMode.signUp) {
+        final response = await auth.signUp(email: email, password: password);
+        if (mounted && response.session == null) {
+          setState(
+            () => _error =
+                'Account created. Check your email to confirm it, then sign in.',
+          );
+        }
+      } else {
+        await auth.signInWithPassword(email: email, password: password);
       }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _verifyCode() async {
-    final phone = _phoneController.text.trim();
-    final code = _codeController.text.trim();
-    if (code.length < 4) {
-      setState(
-        () => _error = 'Enter the verification code sent to your phone.',
-      );
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      await Supabase.instance.client.auth.verifyOTP(
-        phone: phone,
-        token: code,
-        type: OtpType.sms,
-      );
+    } on AuthException catch (error) {
+      if (mounted) setState(() => _error = error.message);
     } catch (error) {
-      if (mounted) setState(() => _error = 'Could not verify the code: $error');
+      if (mounted) setState(() => _error = 'Could not sign in: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -270,7 +252,7 @@ class _CitizenPhoneAuthPageState extends State<CitizenPhoneAuthPage> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Use your phone number to receive a one-time verification code.',
+                      'Sign in to submit reports and track their municipal status.',
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 20),
@@ -286,7 +268,7 @@ class _CitizenPhoneAuthPageState extends State<CitizenPhoneAuthPage> {
                         ),
                       ],
                       selected: {_mode},
-                      onSelectionChanged: _codeSent || _busy
+                      onSelectionChanged: _busy
                           ? null
                           : (selection) => setState(() {
                               _mode = selection.first;
@@ -295,42 +277,29 @@ class _CitizenPhoneAuthPageState extends State<CitizenPhoneAuthPage> {
                     ),
                     const SizedBox(height: 16),
                     TextField(
-                      controller: _phoneController,
-                      enabled: !_codeSent && !_busy,
-                      keyboardType: TextInputType.phone,
-                      textInputAction: _codeSent
-                          ? TextInputAction.next
-                          : TextInputAction.done,
+                      controller: _emailController,
+                      enabled: !_busy,
+                      keyboardType: TextInputType.emailAddress,
+                      autocorrect: false,
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
-                        labelText: 'Phone number',
-                        hintText: '+919876543210',
-                        prefixIcon: Icon(Icons.phone_outlined),
+                        labelText: 'Email',
+                        hintText: 'you@example.com',
+                        prefixIcon: Icon(Icons.email_outlined),
                       ),
                     ),
-                    if (_codeSent) ...[
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _codeController,
-                        enabled: !_busy,
-                        keyboardType: TextInputType.number,
-                        textInputAction: TextInputAction.done,
-                        decoration: const InputDecoration(
-                          labelText: 'Verification code',
-                          prefixIcon: Icon(Icons.lock_outline),
-                        ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _passwordController,
+                      enabled: !_busy,
+                      obscureText: true,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _authenticate(),
+                      decoration: const InputDecoration(
+                        labelText: 'Password',
+                        prefixIcon: Icon(Icons.lock_outline),
                       ),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: _busy
-                            ? null
-                            : () => setState(() {
-                                _codeSent = false;
-                                _codeController.clear();
-                                _error = null;
-                              }),
-                        child: const Text('Change phone number'),
-                      ),
-                    ],
+                    ),
                     if (_error != null) ...[
                       const SizedBox(height: 8),
                       Text(
@@ -343,11 +312,7 @@ class _CitizenPhoneAuthPageState extends State<CitizenPhoneAuthPage> {
                     ],
                     const SizedBox(height: 12),
                     FilledButton(
-                      onPressed: _busy
-                          ? null
-                          : _codeSent
-                          ? _verifyCode
-                          : _sendCode,
+                      onPressed: _busy ? null : _authenticate,
                       child: _busy
                           ? const SizedBox(
                               width: 20,
@@ -355,18 +320,15 @@ class _CitizenPhoneAuthPageState extends State<CitizenPhoneAuthPage> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : Text(
-                              _codeSent
-                                  ? 'Verify and continue'
-                                  : _mode == _AuthMode.signUp
-                                  ? 'Create account and send code'
-                                  : 'Send sign-in code',
+                              _mode == _AuthMode.signUp
+                                  ? 'Create account'
+                                  : 'Sign in',
                             ),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Choose create account for a new number, or sign in for '
-                      'an existing account. The account is activated after '
-                      'phone verification.',
+                      'Use a confirmed email account. New accounts may need '
+                      'email confirmation, depending on the Supabase project settings.',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
@@ -806,59 +768,128 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       return;
     }
 
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign in before submitting a report.')),
+      );
+      return;
+    }
     setState(() => _isSubmitting = true);
+    late final CitizenReport newReport;
+    String? uploadedPhotoPath;
+    try {
+      final duplicateCheck = await DrainRankEngine.checkSameDeviceRadiusLock(
+        currentLat: _latitude!,
+        currentLng: _longitude!,
+        deviceId: widget.deviceId,
+        userId: user.id,
+      );
+      if (duplicateCheck.isBlocked && duplicateCheck.existingReport != null) {
+        if (mounted) {
+          _showRadiusCooldownDialog(
+            duplicateCheck.existingReport!,
+            duplicateCheck.distanceMeters ?? 0.0,
+          );
+        }
+        return;
+      }
 
-    final duplicateCheck = await DrainRankEngine.checkSameDeviceRadiusLock(
-      currentLat: _latitude!,
-      currentLng: _longitude!,
-      deviceId: widget.deviceId,
-    );
+      final uniqueReportId = DrainRankEngine.generateUniqueReportId();
+      final priorityScore = DrainRankEngine.computePriorityScore(
+        category: _selectedCategory,
+        urgency: _selectedConsequence,
+        matchedDrain: _matchedDrain,
+      );
+      final uploadedAt = DateTime.now();
+      uploadedPhotoPath = '${user.id}/$uniqueReportId.jpg';
+      final photoBytes = await _capturedImage!.readAsBytes();
+      await Supabase.instance.client.storage
+          .from('citizen-photos')
+          .uploadBinary(
+            uploadedPhotoPath,
+            photoBytes,
+            fileOptions: const FileOptions(
+              contentType: 'image/jpeg',
+              upsert: false,
+            ),
+          );
 
-    if (duplicateCheck.isBlocked && duplicateCheck.existingReport != null) {
-      setState(() => _isSubmitting = false);
+      newReport = CitizenReport(
+        reportId: uniqueReportId,
+        deviceId: widget.deviceId,
+        linkedDrainId: _matchedDrain?.drainId ?? 'PROVISIONAL-PIN',
+        latitude: _latitude!,
+        longitude: _longitude!,
+        gpsAccuracyMeters: _gpsAccuracy ?? 5.0,
+        capturedAt: _capturedAt!,
+        uploadedAt: uploadedAt,
+        imagePath: uploadedPhotoPath,
+        imageSha256Hash: _qualityResult!.sha256Hash,
+        imageQualityPassed: _qualityResult!.isValid,
+        imageLuminance: _qualityResult!.luminance,
+        issueCategory: _selectedCategory,
+        aiSuggestedCategory: _aiSuggestedLabel,
+        aiConfidence: _aiConfidence,
+        isUrgentFlagged: _isUrgentFlagged,
+        urgencyConsequence: _selectedConsequence,
+        description: _descController.text.trim().isEmpty
+            ? 'Drain is blocked with garbage and debris.'
+            : _descController.text.trim(),
+        status: ReportWorkflowStatus.complaintReceived,
+        estimatedPriorityScore: priorityScore,
+      );
+      await Supabase.instance.client.from('citizen_reports').insert({
+        'report_id': newReport.reportId,
+        'reporter_id': user.id,
+        'device_id': newReport.deviceId,
+        'linked_drain_id': newReport.linkedDrainId,
+        'latitude': newReport.latitude,
+        'longitude': newReport.longitude,
+        'captured_at': newReport.capturedAt.toUtc().toIso8601String(),
+        'uploaded_at': uploadedAt.toUtc().toIso8601String(),
+        'image_path': uploadedPhotoPath,
+        'image_sha256_hash': newReport.imageSha256Hash,
+        'image_url': null,
+        'issue_category': newReport.issueCategory.name,
+        'is_urgent_flagged': newReport.isUrgentFlagged,
+        'urgency_consequence': newReport.urgencyConsequence.name,
+        'description': newReport.description,
+        'status': 'complaint_received',
+        'estimated_priority_score': newReport.estimatedPriorityScore,
+        'payload': {
+          'gps_accuracy_meters': newReport.gpsAccuracyMeters,
+          'image_quality_passed': newReport.imageQualityPassed,
+          'image_luminance': newReport.imageLuminance,
+          'ai_suggested_category': newReport.aiSuggestedCategory,
+          'ai_confidence': newReport.aiConfidence,
+          'urgency_consequence_label': newReport.urgencyConsequence.label,
+        },
+      });
+      try {
+        await DrainRankEngine.saveReport(newReport, userId: user.id);
+      } catch (cacheError) {
+        debugPrint('Could not cache submitted report locally: $cacheError');
+      }
+    } catch (error) {
+      if (uploadedPhotoPath != null) {
+        try {
+          await Supabase.instance.client.storage.from('citizen-photos').remove([
+            uploadedPhotoPath,
+          ]);
+        } catch (cleanupError) {
+          debugPrint('Could not remove orphaned report photo: $cleanupError');
+        }
+      }
       if (mounted) {
-        _showRadiusCooldownDialog(
-          duplicateCheck.existingReport!,
-          duplicateCheck.distanceMeters ?? 0.0,
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not submit report: $error')),
         );
       }
       return;
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
-
-    final uniqueReportId = DrainRankEngine.generateUniqueReportId();
-    final priorityScore = DrainRankEngine.computePriorityScore(
-      category: _selectedCategory,
-      urgency: _selectedConsequence,
-      matchedDrain: _matchedDrain,
-    );
-
-    final newReport = CitizenReport(
-      reportId: uniqueReportId,
-      deviceId: widget.deviceId,
-      linkedDrainId: _matchedDrain?.drainId ?? 'PROVISIONAL-PIN',
-      latitude: _latitude!,
-      longitude: _longitude!,
-      gpsAccuracyMeters: _gpsAccuracy ?? 5.0,
-      capturedAt: _capturedAt!,
-      uploadedAt: DateTime.now(),
-      imagePath: _capturedImage!.path,
-      imageSha256Hash: _qualityResult!.sha256Hash,
-      imageQualityPassed: _qualityResult!.isValid,
-      imageLuminance: _qualityResult!.luminance,
-      issueCategory: _selectedCategory,
-      aiSuggestedCategory: _aiSuggestedLabel,
-      aiConfidence: _aiConfidence,
-      isUrgentFlagged: _isUrgentFlagged,
-      urgencyConsequence: _selectedConsequence,
-      description: _descController.text.trim().isEmpty
-          ? 'Drain is blocked with garbage and debris.'
-          : _descController.text.trim(),
-      status: ReportWorkflowStatus.complaintReceived,
-      estimatedPriorityScore: priorityScore,
-    );
-
-    await DrainRankEngine.saveReport(newReport);
-    setState(() => _isSubmitting = false);
 
     if (mounted) {
       await showDialog(
@@ -1573,7 +1604,8 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                   controller: _descController,
                   maxLines: 2,
                   decoration: InputDecoration(
-                    hintText: 'e.g., Drain is completely blocked with plastic garbage near Hospital Gate 2',
+                    hintText:
+                        'e.g., Drain is completely blocked with plastic garbage near Hospital Gate 2',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -1620,6 +1652,7 @@ class TrackStatusTab extends StatefulWidget {
 class _TrackStatusTabState extends State<TrackStatusTab> {
   List<CitizenReport> _reports = [];
   bool _loading = true;
+  String? _loadError;
 
   @override
   void initState() {
@@ -1628,13 +1661,134 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
   }
 
   Future<void> _loadReports() async {
-    final list = await DrainRankEngine.getSavedReports();
-    if (mounted) {
-      setState(() {
-        _reports = list;
-        _loading = false;
-      });
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    if (user == null) {
+      if (mounted) {
+        setState(() {
+          _reports = [];
+          _loadError = 'Sign in to view your reports.';
+          _loading = false;
+        });
+      }
+      return;
     }
+    try {
+      final rows = await client
+          .from('citizen_reports')
+          .select()
+          .eq('reporter_id', user.id)
+          .order('created_at', ascending: false);
+      final list = <CitizenReport>[];
+      for (final row in rows) {
+        final imagePath = row['image_path'] as String?;
+        final imageUrl = imagePath == null
+            ? null
+            : await client.storage
+                  .from('citizen-photos')
+                  .createSignedUrl(imagePath, 3600);
+        list.add(_citizenReportFromRow(row, imageUrl));
+      }
+      String? cacheWarning;
+      try {
+        await DrainRankEngine.cacheReports(list, userId: user.id);
+      } catch (error) {
+        cacheWarning =
+            'Reports loaded, but the offline cache could not update: $error';
+      }
+      if (mounted) {
+        setState(() {
+          _reports = list;
+          _loadError = cacheWarning;
+          _loading = false;
+        });
+      }
+    } catch (error) {
+      var cached = <CitizenReport>[];
+      String? cacheError;
+      try {
+        cached = await DrainRankEngine.getSavedReports(userId: user.id);
+      } catch (error) {
+        cacheError = error.toString();
+      }
+      if (mounted) {
+        setState(() {
+          _reports = cached;
+          _loadError = [
+            'Could not refresh reports from Supabase: $error',
+            if (cacheError != null)
+              'Could not read the local report cache: $cacheError',
+          ].join('\n');
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  CitizenReport _citizenReportFromRow(
+    Map<String, dynamic> row,
+    String? imageUrl,
+  ) {
+    final rawStatus = (row['status'] as String? ?? 'complaint_received')
+        .toLowerCase()
+        .replaceAll('-', '_')
+        .replaceAll(' ', '_');
+    final workflowStatus = switch (rawStatus) {
+      'under_verification' => ReportWorkflowStatus.underVerification,
+      'work_assigned' || 'assigned' => ReportWorkflowStatus.workAssigned,
+      'cleaning_completed' ||
+      'resolved' => ReportWorkflowStatus.cleaningCompleted,
+      'under_monitoring' ||
+      'monitoring' => ReportWorkflowStatus.underMonitoring,
+      _ => ReportWorkflowStatus.complaintReceived,
+    };
+    return CitizenReport(
+      reportId: row['report_id'] as String,
+      deviceId: row['device_id'] as String? ?? '',
+      linkedDrainId: row['linked_drain_id'] as String? ?? 'Unassigned',
+      latitude: (row['latitude'] as num).toDouble(),
+      longitude: (row['longitude'] as num).toDouble(),
+      gpsAccuracyMeters:
+          ((row['payload'] as Map<String, dynamic>?)?['gps_accuracy_meters']
+                  as num?)
+              ?.toDouble() ??
+          0,
+      capturedAt: DateTime.parse(row['captured_at'] as String),
+      uploadedAt: DateTime.parse(
+        row['uploaded_at'] as String? ?? row['created_at'] as String,
+      ),
+      imagePath: row['image_path'] as String? ?? '',
+      imageUrl: imageUrl,
+      imageSha256Hash: row['image_sha256_hash'] as String? ?? '',
+      imageQualityPassed:
+          ((row['payload'] as Map<String, dynamic>?)?['image_quality_passed']
+              as bool?) ??
+          false,
+      imageLuminance:
+          ((row['payload'] as Map<String, dynamic>?)?['image_luminance']
+                  as num?)
+              ?.toDouble() ??
+          0,
+      issueCategory: IssueCategory.values.firstWhere(
+        (category) => category.name == row['issue_category'],
+        orElse: () => IssueCategory.other,
+      ),
+      aiSuggestedCategory:
+          (row['payload'] as Map<String, dynamic>?)?['ai_suggested_category']
+              as String?,
+      aiConfidence:
+          ((row['payload'] as Map<String, dynamic>?)?['ai_confidence'] as num?)
+              ?.toDouble(),
+      isUrgentFlagged: row['is_urgent_flagged'] as bool? ?? false,
+      urgencyConsequence: UrgencyConsequence.values.firstWhere(
+        (consequence) => consequence.name == row['urgency_consequence'],
+        orElse: () => UrgencyConsequence.standardResidential,
+      ),
+      description: row['description'] as String? ?? '',
+      status: workflowStatus,
+      estimatedPriorityScore:
+          (row['estimated_priority_score'] as num?)?.toDouble() ?? 0,
+    );
   }
 
   @override
@@ -1643,7 +1797,7 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_reports.isEmpty) {
+    if (_reports.isEmpty && _loadError == null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -1672,6 +1826,28 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
       );
     }
 
+    if (_reports.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.cloud_off_outlined, size: 48),
+              const SizedBox(height: 12),
+              Text(_loadError!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _loading ? null : _loadReports,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Column(
       children: [
         Container(
@@ -1683,23 +1859,27 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
             runSpacing: 4,
             children: [
               Text(
-                'Logged Reports (${_reports.length}) • Tap Status to Simulate Next Stage',
+                'Your Supabase reports (${_reports.length})',
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              TextButton.icon(
-                onPressed: () async {
-                  await DrainRankEngine.clearAllDemoReports();
-                  _loadReports();
-                },
-                icon: const Icon(Icons.delete_outline, size: 16),
-                label: const Text('Reset Lock', style: TextStyle(fontSize: 12)),
+              IconButton(
+                tooltip: 'Refresh reports',
+                onPressed: _loading ? null : _loadReports,
+                icon: const Icon(Icons.refresh, size: 18),
               ),
             ],
           ),
         ),
+        if (_loadError != null)
+          MaterialBanner(
+            content: Text(_loadError!),
+            actions: [
+              TextButton(onPressed: _loadReports, child: const Text('Retry')),
+            ],
+          ),
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(14),
@@ -1768,19 +1948,27 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
                         children: [
                           ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: Image.file(
-                              File(r.imagePath),
-                              width: 72,
-                              height: 72,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  Container(
+                            child: r.imageUrl != null
+                                ? Image.network(
+                                    r.imageUrl!,
                                     width: 72,
                                     height: 72,
-                                    color: Colors.grey.shade300,
-                                    child: const Icon(Icons.image),
-                                  ),
-                            ),
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            _reportImagePlaceholder(),
+                                  )
+                                : r.imagePath.isNotEmpty
+                                ? Image.file(
+                                    File(r.imagePath),
+                                    width: 72,
+                                    height: 72,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            _reportImagePlaceholder(),
+                                  )
+                                : _reportImagePlaceholder(),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -1859,17 +2047,6 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
                         );
                       }),
                       const SizedBox(height: 10),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            await DrainRankEngine.advanceDemoStatus(r.reportId);
-                            _loadReports();
-                          },
-                          icon: const Icon(Icons.fast_forward, size: 16),
-                          label: const Text('Simulate Next Backend Status'),
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -1880,6 +2057,13 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
       ],
     );
   }
+
+  Widget _reportImagePlaceholder() => Container(
+    width: 72,
+    height: 72,
+    color: Colors.grey.shade300,
+    child: const Icon(Icons.image),
+  );
 }
 
 class DrainRankUtilityPage extends StatefulWidget {
