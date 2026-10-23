@@ -1,20 +1,19 @@
 part of '../main.dart';
 
-/// Writes real EXIF GPS metadata into the JPEG bytes, not just Firebase fields.
+/// Writes real EXIF GPS metadata into the JPEG bytes, not only database fields.
 /// Supports Flutter Android and Chrome without platform-specific EXIF plugins.
 Uint8List embedGpsExifInJpeg(
-    Uint8List jpeg,
-    Position position,
-    DateTime capturedAt,
-    ) {
+  Uint8List jpeg,
+  Position position,
+  DateTime capturedAt,
+) {
   if (jpeg.length < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8) {
     throw const FormatException(
       'Camera did not produce a JPEG image; cannot embed EXIF GPS tags.',
     );
   }
 
-  Uint8List ascii(String value) =>
-      Uint8List.fromList([...value.codeUnits, 0]);
+  Uint8List ascii(String value) => Uint8List.fromList([...value.codeUnits, 0]);
 
   Uint8List uint32(int value) {
     final data = ByteData(4)..setUint32(0, value, Endian.little);
@@ -36,7 +35,7 @@ Uint8List embedGpsExifInJpeg(
     return out.takeBytes();
   }
 
-// EXIF GPS values must be unsigned rational numbers with separate N/S E/W refs.
+  // EXIF GPS values must be unsigned rational numbers with separate N/S E/W refs.
   Uint8List degreesMinutesSeconds(double coordinate) {
     final value = coordinate.abs();
     final degrees = value.floor();
@@ -60,8 +59,8 @@ Uint8List embedGpsExifInJpeg(
       '${utc.year.toString().padLeft(4, '0')}:'
       '${two(utc.month)}:${two(utc.day)}';
 
-// Each entry: TIFF tag, TIFF type, number of values, encoded value(s).
-// Type 1 = byte, 2 = ASCII, 5 = unsigned rational, 4 = uint32.
+  // Each entry: TIFF tag, TIFF type, number of values, encoded value(s).
+  // Type 1 = byte, 2 = ASCII, 5 = unsigned rational, 4 = uint32.
   final ifd0 = <_GpsExifEntry>[
     _GpsExifEntry(0x0132, 2, 20, ascii(localTimestamp)), // DateTime
     _GpsExifEntry(0x8769, 4, 1, uint32(0)), // Exif IFD offset
@@ -73,26 +72,51 @@ Uint8List embedGpsExifInJpeg(
   ];
   final gpsIfd = <_GpsExifEntry>[
     _GpsExifEntry(0x0000, 1, 4, Uint8List.fromList([2, 3, 0, 0])),
-    _GpsExifEntry(0x0001, 2, 2,
-        Uint8List.fromList([position.latitude < 0 ? 83 : 78, 0])),
+    _GpsExifEntry(
+      0x0001,
+      2,
+      2,
+      Uint8List.fromList([position.latitude < 0 ? 83 : 78, 0]),
+    ),
     _GpsExifEntry(0x0002, 5, 3, degreesMinutesSeconds(position.latitude)),
-    _GpsExifEntry(0x0003, 2, 2,
-        Uint8List.fromList([position.longitude < 0 ? 87 : 69, 0])),
+    _GpsExifEntry(
+      0x0003,
+      2,
+      2,
+      Uint8List.fromList([position.longitude < 0 ? 87 : 69, 0]),
+    ),
     _GpsExifEntry(0x0004, 5, 3, degreesMinutesSeconds(position.longitude)),
-    _GpsExifEntry(0x0005, 1, 1,
-        Uint8List.fromList([position.altitude < 0 ? 1 : 0])),
-    _GpsExifEntry(0x0006, 5, 1,
-        rational((position.altitude.abs() * 100).round(), 100)),
-    _GpsExifEntry(0x0007, 5, 3, rationals([
-      rational(utc.hour, 1),
-      rational(utc.minute, 1),
-      rational(utc.second * 1000 + utc.millisecond, 1000),
-    ])),
+    _GpsExifEntry(
+      0x0005,
+      1,
+      1,
+      Uint8List.fromList([position.altitude < 0 ? 1 : 0]),
+    ),
+    _GpsExifEntry(
+      0x0006,
+      5,
+      1,
+      rational((position.altitude.abs() * 100).round(), 100),
+    ),
+    _GpsExifEntry(
+      0x0007,
+      5,
+      3,
+      rationals([
+        rational(utc.hour, 1),
+        rational(utc.minute, 1),
+        rational(utc.second * 1000 + utc.millisecond, 1000),
+      ]),
+    ),
     _GpsExifEntry(0x001D, 2, 11, ascii(gpsDate)),
-// GPSHPositioningError: estimated horizontal error in meters (EXIF GPS tag 31).
+    // GPSHPositioningError: estimated horizontal error in meters (EXIF GPS tag 31).
     if (position.accuracy.isFinite && position.accuracy >= 0)
-      _GpsExifEntry(0x001F, 5, 1,
-          rational((math.min(position.accuracy, 42949672) * 100).round(), 100)),
+      _GpsExifEntry(
+        0x001F,
+        5,
+        1,
+        rational((math.min(position.accuracy, 42949672) * 100).round(), 100),
+      ),
   ];
 
   int dirSize(List<_GpsExifEntry> entries) => 2 + entries.length * 12 + 4;
@@ -150,8 +174,8 @@ Uint8List embedGpsExifInJpeg(
   if (segmentLength > 65535) {
     throw const FormatException('EXIF metadata is too large for JPEG APP1.');
   }
-// Insert EXIF immediately after JPEG SOI, preserving the original image bytes.
-// The resulting bytes (including EXIF) are the bytes uploaded to Firebase.
+  // Insert EXIF immediately after JPEG SOI, preserving the original image bytes.
+  // The resulting bytes (including EXIF) are uploaded to Supabase Storage.
   final output = BytesBuilder(copy: false)
     ..add(jpeg.sublist(0, 2))
     ..add([0xFF, 0xE1, segmentLength >> 8, segmentLength & 0xFF])

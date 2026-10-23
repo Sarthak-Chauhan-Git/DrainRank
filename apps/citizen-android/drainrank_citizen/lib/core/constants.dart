@@ -1,10 +1,6 @@
 class AppConstants {
-  static const String appName = 'DrainRank';
+  static const String appName = 'Swachh Pravah';
   static const String wardName = 'Ward 12 • Storm Water Division';
-
-  // Backend API Configuration (Swap with your teammate's IP/URL when ready)
-  static const String apiBaseUrl = 'http://192.168.1.100:8000/api/v1';
-  static bool useMockBackend = true; // Keeps app 100% functional offline/demo
 
   // Handwritten Note & Proposal Section 3.3 Rules:
   // 15.0 meters pilot default tolerance for same-drain & anti-spam radius lock

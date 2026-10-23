@@ -6,7 +6,7 @@ class MunicipalCrewApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'DRAINRANK',
+      title: 'Swachh Pravah Sarthi',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -57,7 +57,8 @@ class MunicipalCrewApp extends StatelessWidget {
           ),
         ),
         navigationBarTheme: const NavigationBarThemeData(
-          backgroundColor: Color(0xFFF0FDFA),
+          backgroundColor: Color(0xFFFFFFFF),
+          surfaceTintColor: Colors.transparent,
           indicatorColor: Color(0xFFE8F8F1),
           iconTheme: WidgetStatePropertyAll(
             IconThemeData(color: Color(0xFF0F766E)),
@@ -78,14 +79,18 @@ class MunicipalCrewApp extends StatelessWidget {
           style: FilledButton.styleFrom(
             backgroundColor: const Color(0xFF0F766E),
             foregroundColor: const Color(0xFFFFFFFF),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         ),
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
             foregroundColor: const Color(0xFF0F766E),
             side: const BorderSide(color: Color(0xFFB9DED3)),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
@@ -111,13 +116,24 @@ class MunicipalCrewApp extends StatelessWidget {
           selectedColor: const Color(0xFFE8F8F1),
           side: const BorderSide(color: Color(0xFFB9DED3)),
           labelStyle: const TextStyle(color: Color(0xFF1E3A5F)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
         dividerColor: const Color(0xFFE7EEF0),
         textTheme: const TextTheme(
-          headlineSmall: TextStyle(color: Color(0xFF124170), fontWeight: FontWeight.w700),
-          titleLarge: TextStyle(color: Color(0xFF124170), fontWeight: FontWeight.w700),
-          titleMedium: TextStyle(color: Color(0xFF1E3A5F), fontWeight: FontWeight.w600),
+          headlineSmall: TextStyle(
+            color: Color(0xFF124170),
+            fontWeight: FontWeight.w700,
+          ),
+          titleLarge: TextStyle(
+            color: Color(0xFF124170),
+            fontWeight: FontWeight.w700,
+          ),
+          titleMedium: TextStyle(
+            color: Color(0xFF1E3A5F),
+            fontWeight: FontWeight.w600,
+          ),
           bodyLarge: TextStyle(color: Color(0xFF334155)),
           bodyMedium: TextStyle(color: Color(0xFF334155)),
           bodySmall: TextStyle(color: Color(0xFF64748B)),

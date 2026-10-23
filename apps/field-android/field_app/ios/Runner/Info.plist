@@ -24,6 +24,10 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>DrainRank uses the camera to capture field-work evidence.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>DrainRank records the location of field-work evidence.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

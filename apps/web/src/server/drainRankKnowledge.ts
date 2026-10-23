@@ -5,7 +5,7 @@ PRODUCT PURPOSE
 DrainRank is a municipal drainage operations dashboard that tracks drainage complaints and assets from report intake through prioritization, field work, evidence review, and recorded outcomes. It supports staff decisions; it does not dispatch crews, inspect drains, or change real-world conditions by itself.
 
 CURRENT APPLICATION STATE
-This version uses seeded sample records and browser local storage. It is not connected to Supabase, a production backend, authenticated roles, or database row-level security. Do not claim the current application has those capabilities. The local Qwen assistant receives only an allowlisted subset of drainage work fields through the local development API.
+The municipal dashboard requires a Supabase-authenticated administrator. Operational dashboard records and preferences are loaded from and saved to a row protected by Supabase row-level security; a newly initialized workspace is empty rather than seeded with demo records. Dashboard evidence photos use the private Supabase Storage bucket and only the object path is stored with dashboard records; the app creates short-lived signed URLs for previews. The DrainRank assistant remains a local Ollama development integration and is not a hosted backend service. It receives only an allowlisted subset of drainage work fields through the local development API.
 
 NAVIGATION AND PURPOSE
 - Overview (/overview): operational summary and dashboard measures.

@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'dart:typed_data';
 import 'dart:math' as math;
 
-import 'firebase_options.dart';
+import 'backend/supabase_backend.dart';
 
 part 'app/app.dart';
 part 'camera/gps_exif.dart';
@@ -29,8 +28,38 @@ part 'tasks/task_detail_row.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+  const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+  const supabasePublishableKey = String.fromEnvironment(
+    'SUPABASE_PUBLISHABLE_KEY',
+  );
+  if (supabaseUrl.isEmpty || supabasePublishableKey.isEmpty) {
+    runApp(const _FieldBackendSetupRequiredApp());
+    return;
+  }
+  await Supabase.initialize(
+    url: supabaseUrl,
+    publishableKey: supabasePublishableKey,
   );
   runApp(const MunicipalCrewApp());
+}
+
+class _FieldBackendSetupRequiredApp extends StatelessWidget {
+  const _FieldBackendSetupRequiredApp();
+
+  @override
+  Widget build(BuildContext context) => const MaterialApp(
+    home: Scaffold(
+      body: Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Supabase is not configured. Run this app with '
+            '--dart-define=SUPABASE_URL=... and '
+            '--dart-define=SUPABASE_PUBLISHABLE_KEY=... .',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ),
+    ),
+  );
 }

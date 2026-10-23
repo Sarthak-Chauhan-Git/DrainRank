@@ -1,17 +1,63 @@
-# drainrank_citizen
+# Swachh Pravah Citizen App
 
-A new Flutter project.
+Flutter citizen app for submitting drain reports and tracking their workflow.
+The Android launcher label and icon use the Swachh Pravah branding; the source
+logo is kept at `assets/logo.png`.
 
-## Getting Started
+## Configure Supabase email authentication and report storage
 
-This project is a starting point for a Flutter application.
+The app uses Supabase email/password authentication. Enable the Email provider
+in Supabase Authentication. Email confirmation may be enabled or disabled
+according to the project's authentication settings. Authenticated citizens
+upload report photos to the private `citizen-photos` bucket and insert report
+records in `public.citizen_reports`.
 
-A few resources to get you started if this is your first Flutter project:
+Apply the migrations in `backend/supabase/migrations` before running the app.
+The policies restrict each citizen to their own reports and photos; dashboard
+administrators can review all reports.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Pass the project's URL and publishable key as Dart defines when running or
+building the app. Do not commit credentials or paste them into source files:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```powershell
+flutter run `
+  --dart-define=SUPABASE_URL=https://your-project.supabase.co `
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
+
+For a debug APK:
+
+```powershell
+flutter build apk --debug `
+  --dart-define=SUPABASE_URL=https://your-project.supabase.co `
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
+
+If the Supabase values are missing, the app displays a setup message instead of
+starting with an invalid client.
+
+## Build and test
+
+This app requires Flutter 3.47 or newer (Dart `^3.13.5`), matching the
+project's package lockfile. Check with `flutter --version` before resolving
+packages.
+
+```powershell
+flutter pub get
+flutter analyze
+flutter test
+```
+
+Nearby hospital/school verification for high-urgency reports additionally
+requires a Geoapify API key passed as
+`--dart-define=GEOAPIFY_API_KEY=...`. Without it, standard-priority reports
+remain available, but automatic high-urgency verification is unavailable.
+
+Reports and photos are submitted to Supabase. The app keeps a local report
+cache so previously loaded records remain visible if a refresh fails; any
+refresh failure is shown in the tracking screen.
+
+In debug builds, open the profile menu's **Saved Locations** page to enter and
+enable a fixed test latitude/longitude. New reports use those coordinates
+instead of device GPS while enabled. This setting is ignored in release builds;
+disable it to return to normal GPS reporting.

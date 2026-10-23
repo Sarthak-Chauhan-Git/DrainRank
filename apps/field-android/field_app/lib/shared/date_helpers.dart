@@ -9,10 +9,30 @@ String _dateKey(DateTime date) {
 }
 
 String _prettyDate(DateTime date) {
-  const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const weekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+  const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
   return '${weekdays[date.weekday - 1]}, ${date.day} ${months[date.month - 1]} ${date.year}';
 }
 
-/// Immutable, admin-approved credit awards. One award per crew member/task.
-/// Uses the user's own Firestore subcollection, so crew cannot read others' totals.
+/// Immutable, admin-approved credit awards. Crew reads are scoped by RLS.
