@@ -1,5 +1,5 @@
 class AppConstants {
-  static const String appName = 'DrainRank';
+  static const String appName = 'Swachh Pravah';
   static const String wardName = 'Ward 12 • Storm Water Division';
 
   // Handwritten Note & Proposal Section 3.3 Rules:

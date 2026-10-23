@@ -1,6 +1,11 @@
 import type { AppState, DrainRecord, ReportRecord } from "./App";
 import { createEmptyData } from "./emptyState";
+import {
+  groupReportsByFirstAnchor,
+  priorityWithReportVolume,
+} from "./reportGrouping";
 import { supabase } from "./supabase";
+import { signDashboardImage } from "./supabaseStorage";
 
 const dashboardKey = "municipal";
 let pendingSave: Promise<void> = Promise.resolve();
@@ -18,12 +23,14 @@ export async function loadDashboardState(): Promise<AppState> {
     client
       .from("citizen_reports")
       .select(
-        "report_id,linked_drain_id,latitude,longitude,issue_category,is_urgent_flagged,description,status,estimated_priority_score,image_url,image_path,captured_at,uploaded_at,created_at",
+        "report_id,linked_drain_id,latitude,longitude,issue_category,is_urgent_flagged,description,status,estimated_priority_score,image_path,captured_at,uploaded_at,created_at",
       )
       .order("created_at", { ascending: false }),
     client
       .from("field_tasks")
-      .select("id,status,assigned_to_uid,crew_members"),
+      .select(
+        "id,title,status,assigned_to_uid,crew_members,inspection_outcome",
+      ),
   ]);
   if (dashboardResult.error) {
     throw new Error(
@@ -41,25 +48,14 @@ export async function loadDashboardState(): Promise<AppState> {
     );
   }
 
-  const citizenReports = await Promise.all(
-    citizenResult.data.map(async (row) => {
-      let photoUrl = row.image_url;
-      if (!photoUrl && row.image_path) {
-        const { data, error } = await client.storage
-          .from("citizen-photos")
-          .createSignedUrl(row.image_path, 3600);
-        if (error) {
-          throw new Error(`Could not open citizen report photo: ${error.message}`);
-        }
-        photoUrl = data.signedUrl;
-      }
-      return mapCitizenReport(row, photoUrl);
-    }),
-  );
+  const citizenReports = await mapCitizenRows(citizenResult.data);
   if (!dashboardResult.data) {
     loadedUpdatedAt = null;
-    const empty = createEmptyData();
-    return { ...empty, reports: citizenReports };
+    return mergeCitizenWorkflow(
+      createEmptyData(),
+      citizenReports,
+      fieldTaskResult.data,
+    );
   }
   loadedUpdatedAt = dashboardResult.data.updated_at;
 
@@ -90,23 +86,139 @@ export async function loadDashboardState(): Promise<AppState> {
     if (!task) return drain;
     return {
       ...drain,
-      workStatus: task.status,
+      fieldTaskStatus: task.status,
+      inspectionOutcome: task.inspection_outcome,
+      workStatus:
+        drain.workStatus?.startsWith("Inspection assigned") ||
+        drain.workStatus?.startsWith("Cleaning assigned")
+          ? drain.workStatus
+          : task.status,
     };
   });
 
-  return {
+  const hydratedState = await hydrateDashboardImages({
     ...state,
     drains,
-    reports: mergeCitizenReports(citizenReports, state.reports),
+    reports: state.reports,
+  } as AppState);
+  return mergeCitizenWorkflow(
+    hydratedState,
+    citizenReports,
+    fieldTaskResult.data,
+  );
+}
+
+async function hydrateDashboardImages(state: AppState): Promise<AppState> {
+  const [drains, reports] = await Promise.all([
+    Promise.all(
+      state.drains.map(async (drain) => {
+        if (!drain.evidencePhotoPath) {
+          return drain.evidencePhoto
+            ? {
+                ...drain,
+                evidencePhoto: undefined,
+                evidencePhotoLoadError:
+                  "This image must be uploaded again to Supabase Storage.",
+              }
+            : drain;
+        }
+        const result = await signDashboardImage(drain.evidencePhotoPath);
+        return {
+          ...drain,
+          evidencePhoto: result.signedUrl,
+          evidencePhotoLoadError: result.error,
+        };
+      }),
+    ),
+    Promise.all(
+      state.reports.map(async (report) => {
+        if (!report.photoPath) {
+          return report.photo
+            ? {
+                ...report,
+                photo: undefined,
+                photoLoadError:
+                  "This image must be uploaded again to Supabase Storage.",
+              }
+            : report;
+        }
+        const result = await signDashboardImage(report.photoPath);
+        return {
+          ...report,
+          photo: result.signedUrl,
+          photoLoadError: result.error,
+        };
+      }),
+    ),
+  ]);
+
+  return { ...state, drains, reports };
+}
+
+export async function refreshCitizenWorkflow(
+  state: AppState,
+): Promise<Pick<AppState, "drains" | "reports">> {
+  if (!supabase) throw new Error("Supabase is not configured.");
+  const [citizenResult, fieldTaskResult] = await Promise.all([
+    supabase
+      .from("citizen_reports")
+      .select(
+        "report_id,linked_drain_id,latitude,longitude,issue_category,is_urgent_flagged,description,status,estimated_priority_score,image_path,captured_at,uploaded_at,created_at",
+      )
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("field_tasks")
+      .select("id,title,status,assigned_to_uid,crew_members,inspection_outcome"),
+  ]);
+  if (citizenResult.error) {
+    throw new Error(`Could not refresh citizen reports: ${citizenResult.error.message}`);
+  }
+  if (fieldTaskResult.error) {
+    throw new Error(`Could not refresh field tasks: ${fieldTaskResult.error.message}`);
+  }
+  const citizenReports = await mapCitizenRows(citizenResult.data);
+  const refreshed = await mergeCitizenWorkflow(
+    state,
+    citizenReports,
+    fieldTaskResult.data,
+  );
+  return { drains: refreshed.drains, reports: refreshed.reports };
+}
+
+async function mergeCitizenWorkflow(
+  state: AppState,
+  citizenReports: ReportRecord[],
+  fieldTasks: FieldTaskRow[],
+): Promise<AppState> {
+  const existingGroups = new Map(
+    state.drains
+      .filter((drain) => drain.citizenReportGroup)
+      .map((drain) => [drain.id, drain]),
+  );
+  const tasksById = new Map(fieldTasks.map((task) => [task.id, task]));
+  const {
+    reports: groupedReports,
+    drains: citizenReportDrains,
+  } = buildCitizenReportGroups(
+    citizenReports,
+    existingGroups,
+    tasksById,
+  );
+  return {
+    ...state,
+    drains: [
+      ...state.drains.filter((drain) => !drain.citizenReportGroup),
+      ...citizenReportDrains,
+    ],
+    reports: mergeCitizenReports(groupedReports, state.reports),
     preferences: state.preferences ?? {
       notifications: true,
       dailyDigest: true,
     },
-  } as AppState;
+  };
 }
 
-function mapCitizenReport(
-  row: {
+type CitizenReportRow = {
   report_id: string;
   linked_drain_id: string;
   latitude: number;
@@ -116,18 +228,203 @@ function mapCitizenReport(
   description: string;
   status: string;
   estimated_priority_score: number;
-  image_url: string | null;
   image_path: string | null;
   captured_at: string;
   uploaded_at: string;
   created_at: string;
-  },
+};
+
+type FieldTaskRow = {
+  id: string;
+  title: string;
+  status: string;
+  assigned_to_uid: string[];
+  crew_members: unknown;
+  inspection_outcome: "cleaning_required" | "no_cleaning_required" | null;
+};
+
+function buildCitizenReportGroups(
+  reports: ReportRecord[],
+  existingGroups: Map<string, DrainRecord>,
+  tasksById: Map<string, FieldTaskRow>,
+): { reports: ReportRecord[]; drains: DrainRecord[] } {
+  const locatedReports = reports.map((report) => {
+    if (
+      typeof report.latitude !== "number" ||
+      typeof report.longitude !== "number"
+    ) {
+      throw new Error(`Citizen report ${report.id} has no valid location.`);
+    }
+    return {
+      ...report,
+      latitude: report.latitude,
+      longitude: report.longitude,
+    };
+  });
+  const groups = groupReportsByFirstAnchor(locatedReports);
+
+  const drains: DrainRecord[] = [];
+  for (const group of groups) {
+    const anchor = group.anchor;
+    const id = `CRQ-${anchor.id}`;
+    const sourceReportIds = group.members.map((report) => report.id);
+    const previous = existingGroups.get(id);
+    const task = tasksById.get(id);
+    const newReportArrived = Boolean(
+      previous &&
+        sourceReportIds.some(
+          (reportId) => !previous.sourceReportIds?.includes(reportId),
+        ),
+    );
+    const shouldReopen =
+      newReportArrived &&
+      (previous?.status === "Monitoring" ||
+        previous?.status === "Reviewed" ||
+        previous?.status === "Resolved");
+    const inspectionOutcome = shouldReopen
+      ? null
+      : (task?.inspection_outcome ?? previous?.inspectionOutcome ?? null);
+    const priority = priorityWithReportVolume(
+      group.members.map((report) => report.priority),
+    );
+    const reportIds = sourceReportIds.join(", ");
+    let status: DrainRecord["status"] = shouldReopen
+      ? "Inspection Required"
+      : (previous?.status ?? "Inspection Required");
+    let workStatus = shouldReopen
+      ? "Inspection queued"
+      : (previous?.workStatus ?? "Inspection queued");
+    let assignedCrew = shouldReopen ? undefined : previous?.assignedCrew;
+    let assignedCrews = shouldReopen ? [] : previous?.assignedCrews;
+    let fieldTaskStatus = shouldReopen
+      ? "Pending"
+      : (task?.status ?? previous?.fieldTaskStatus ?? "Pending");
+    const cleaningPhaseActive = previous?.workStatus?.startsWith(
+      "Cleaning assigned",
+    );
+    if (
+      inspectionOutcome === "cleaning_required" &&
+      !cleaningPhaseActive
+    ) {
+      status = "Cleaning Recommended";
+      workStatus = "Inspection completed · cleaning required";
+      assignedCrew = undefined;
+      assignedCrews = [];
+      fieldTaskStatus = "Completed";
+    } else if (
+      inspectionOutcome === "no_cleaning_required" &&
+      !cleaningPhaseActive
+    ) {
+      status = "Monitoring";
+      workStatus = "Inspection completed · monitoring";
+      assignedCrew = undefined;
+      assignedCrews = [];
+      fieldTaskStatus = "Completed";
+    }
+    const location = `${anchor.latitude!.toFixed(5)}, ${anchor.longitude!.toFixed(5)}`;
+    const groupReason =
+      `${group.members.length} citizen report${group.members.length === 1 ? "" : "s"} within 1 km of the first report (${anchor.id}); ` +
+      `priority increased by ${5 * (group.members.length - 1)} points.`;
+    const drain: DrainRecord = {
+      ...previous,
+      id,
+      citizenReportGroup: true,
+      sourceReportIds,
+      anchorLatitude: anchor.latitude,
+      anchorLongitude: anchor.longitude,
+      fieldTaskStatus,
+      inspectionOutcome,
+      location,
+      ward: previous?.ward ?? "Unassigned",
+      reason: `${groupReason} Reports: ${reportIds}.`,
+      status,
+      priority,
+      consequence: previous?.consequence ?? 0.7,
+      catchment: previous?.catchment ?? 0.8,
+      visibleBlockage: previous?.visibleBlockage ?? 0,
+      evidenceUncertainty: previous?.evidenceUncertainty ?? 1,
+      condition: "Citizen report cluster awaiting field inspection",
+      evidenceStatus:
+        inspectionOutcome === "cleaning_required"
+          ? "Inspection complete; cleaning required"
+          : inspectionOutcome === "no_cleaning_required"
+            ? "Inspection complete; monitoring"
+            : "Citizen reports awaiting inspection",
+      lastObservation: anchor.submittedAt,
+      assignedCrew,
+      assignedCrews,
+      workStatus,
+      issueType: anchor.issueType,
+      mapPosition: [anchor.latitude!, anchor.longitude!],
+      lastUpdated: anchor.submittedAt,
+    };
+    drains.push(drain);
+    for (const report of group.members) {
+      report.drainId = id;
+      report.priority = priority;
+      report.reasons = [
+        `${group.members.length} report${group.members.length === 1 ? "" : "s"} within 1 km of the first report`,
+        `Area priority increased by ${5 * (group.members.length - 1)} points`,
+      ];
+      if (inspectionOutcome === "no_cleaning_required") {
+        report.backendStatus = "under_monitoring";
+      } else if (inspectionOutcome === "cleaning_required") {
+        report.backendStatus = "work_assigned";
+      }
+    }
+  }
+  return { reports, drains };
+}
+
+async function mapCitizenRows(rows: CitizenReportRow[]): Promise<ReportRecord[]> {
+  if (!supabase) throw new Error("Supabase is not configured.");
+  const client = supabase;
+  return Promise.all(
+    rows.map(async (row) => {
+      if (
+        !Number.isFinite(row.latitude) ||
+        !Number.isFinite(row.longitude) ||
+        row.latitude < -90 ||
+        row.latitude > 90 ||
+        row.longitude < -180 ||
+        row.longitude > 180
+      ) {
+        throw new Error(
+          `Citizen report ${row.report_id} has invalid location coordinates.`,
+        );
+      }
+      let photoUrl: string | null = null;
+      let photoLoadError: string | undefined;
+      if (row.image_path) {
+        const { data, error } = await client.storage
+          .from("citizen-photos")
+          .createSignedUrl(row.image_path, 3600);
+        if (error) {
+          photoLoadError = error.message;
+        } else if (!data?.signedUrl) {
+          throw new Error(
+            `The photo service returned no URL for citizen report ${row.report_id}.`,
+          );
+        } else {
+          photoUrl = data.signedUrl;
+        }
+      }
+      return mapCitizenReport(row, photoUrl, photoLoadError);
+    }),
+  );
+}
+
+function mapCitizenReport(
+  row: CitizenReportRow,
   photoUrl: string | null,
+  photoLoadError?: string,
 ): ReportRecord {
   const normalizedStatus = row.status.toLowerCase();
   return {
     id: row.report_id,
     drainId: row.linked_drain_id,
+    latitude: row.latitude,
+    longitude: row.longitude,
     reporterName: "Citizen",
     issueType: row.issue_category
       .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -138,7 +435,8 @@ function mapCitizenReport(
     description: row.description,
     urgent: row.is_urgent_flagged,
     photo: photoUrl ?? undefined,
-    submittedAt: row.uploaded_at || row.captured_at || row.created_at,
+    photoLoadError,
+    submittedAt: row.created_at || row.uploaded_at || row.captured_at,
     priority: Number(row.estimated_priority_score),
     reasons: ["Submitted through the citizen app"],
     backendStatus: row.status,
@@ -228,6 +526,83 @@ export async function saveDashboardState(state: AppState): Promise<void> {
   return nextSave;
 }
 
+export async function resetOperationalData(
+  state: AppState,
+): Promise<{ photoCleanupError: string | null }> {
+  if (!supabase) throw new Error("Supabase is not configured.");
+  await pendingSave.catch(() => undefined);
+
+  const { error } = await supabase.rpc("reset_operational_data", {
+    p_payload: state,
+  });
+  if (error) {
+    throw new Error(`Could not reset operational data: ${error.message}`);
+  }
+
+  const photoCleanupError = await deleteStoredPhotos();
+  return { photoCleanupError };
+}
+
+async function deleteStoredPhotos(): Promise<string | null> {
+  if (!supabase) throw new Error("Supabase is not configured.");
+  const errors: string[] = [];
+
+  for (const bucketName of [
+    "citizen-photos",
+    "work-photos",
+    "dashboard-evidence",
+  ]) {
+    const bucket = supabase.storage.from(bucketName);
+    try {
+      const paths = await listStoredFiles(bucket, "");
+      for (let offset = 0; offset < paths.length; offset += 100) {
+        const { error } = await bucket.remove(paths.slice(offset, offset + 100));
+        if (error) throw error;
+      }
+    } catch (error) {
+      errors.push(
+        `${bucketName}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  return errors.length ? errors.join("; ") : null;
+}
+
+async function listStoredFiles(
+  bucket: NonNullable<typeof supabase>["storage"]["from"] extends (
+    bucket: string,
+  ) => infer StorageBucket
+    ? StorageBucket
+    : never,
+  folder: string,
+): Promise<string[]> {
+  const paths: string[] = [];
+  const pageSize = 100;
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await bucket.list(folder, {
+      limit: pageSize,
+      offset,
+    });
+    if (error) throw error;
+
+    for (const entry of data) {
+      const path = folder ? `${folder}/${entry.name}` : entry.name;
+      if (entry.id === null) {
+        paths.push(...(await listStoredFiles(bucket, path)));
+      } else {
+        paths.push(path);
+      }
+    }
+    if (data.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return paths;
+}
+
 function mapOpenReportStatus(status: string | undefined): string {
   const normalizedStatus = status?.toLowerCase();
   const openStatuses = new Set([
@@ -285,7 +660,8 @@ function mapDashboardTasks(state: AppState) {
       date_key: dateKey,
       location: drain.location,
       description: drain.reason,
-      status: drain.workStatus ?? drain.status,
+      status: drain.fieldTaskStatus ?? drain.workStatus ?? drain.status,
+      inspection_outcome: drain.inspectionOutcome ?? null,
       assigned_ids: [...new Set(assignedIds)],
       source_report_ids: state.reports
         .filter((report) => report.drainId === drain.id)

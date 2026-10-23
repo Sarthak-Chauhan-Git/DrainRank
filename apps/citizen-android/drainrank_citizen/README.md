@@ -1,6 +1,8 @@
-# DrainRank Citizen
+# Swachh Pravah Citizen App
 
 Flutter citizen app for submitting drain reports and tracking their workflow.
+The Android launcher label and icon use the Swachh Pravah branding; the source
+logo is kept at `assets/logo.png`.
 
 ## Configure Supabase email authentication and report storage
 
@@ -54,3 +56,8 @@ remain available, but automatic high-urgency verification is unavailable.
 Reports and photos are submitted to Supabase. The app keeps a local report
 cache so previously loaded records remain visible if a refresh fails; any
 refresh failure is shown in the tracking screen.
+
+In debug builds, open the profile menu's **Saved Locations** page to enter and
+enable a fixed test latitude/longitude. New reports use those coordinates
+instead of device GPS while enabled. This setting is ignored in release builds;
+disable it to return to normal GPS reporting.

@@ -1,12 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:drainrank_citizen/main.dart';
 import 'package:drainrank_citizen/models/citizen_report.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    await Supabase.initialize(
+      url: 'https://example.supabase.co',
+      publishableKey: 'test-publishable-key',
+    );
+  });
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -30,7 +39,7 @@ void main() {
     },
   );
 
-  testWidgets('report form urgency selector fits a narrow, scaled viewport', (
+  testWidgets('report form shows automatic urgency without manual controls', (
     tester,
   ) async {
     await _setSmallViewport(tester);
@@ -42,59 +51,35 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.dragUntilVisible(
-      find.text('3. High-Urgency Flag'),
+      find.text('Standard priority'),
       find.byType(ListView),
       const Offset(0, -400),
     );
-    expect(find.text('3. High-Urgency Flag'), findsOneWidget);
+    expect(find.text('Standard priority'), findsOneWidget);
     expect(
       find.byType(DropdownButtonFormField<UrgencyConsequence>),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(tester.takeException(), isNull);
-
-    final urgencyDropdown = find.byType(
-      DropdownButtonFormField<UrgencyConsequence>,
-    );
-    await tester.ensureVisible(urgencyDropdown);
+    expect(find.byType(Switch), findsNothing);
+    final urgencyInfo = find.byTooltip('About automatic urgency');
+    expect(urgencyInfo, findsOneWidget);
+    await tester.tap(urgencyInfo);
     await tester.pumpAndSettle();
-    await tester.tap(urgencyDropdown);
-    await tester.pumpAndSettle();
+    expect(find.text('How is urgency assessed?'), findsOneWidget);
+    expect(find.textContaining('within 500 metres'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('report status cards fit a narrow, scaled viewport', (
+  testWidgets('report status handles signed-out state with pull to refresh', (
     tester,
   ) async {
-    final report = CitizenReport(
-      reportId: 'REP-20261016-VERY-LONG-REPORT-IDENTIFIER',
-      deviceId: 'test-device',
-      linkedDrainId: 'PROVISIONAL-DRAIN-PIN-WITH-A-LONG-IDENTIFIER',
-      latitude: 28.6139,
-      longitude: 77.2090,
-      gpsAccuracyMeters: 4.5,
-      capturedAt: DateTime(2026, 10, 16),
-      uploadedAt: DateTime(2026, 10, 16),
-      imagePath: 'missing-test-image.jpg',
-      imageSha256Hash: 'a' * 64,
-      imageQualityPassed: true,
-      imageLuminance: 0.5,
-      issueCategory: IssueCategory.overflow,
-      isUrgentFlagged: true,
-      urgencyConsequence: UrgencyConsequence.criticalHospitalSchool,
-      description: 'Long report used to exercise responsive status rendering.',
-      status: ReportWorkflowStatus.underVerification,
-      estimatedPriorityScore: 80,
-    );
-    SharedPreferences.setMockInitialValues({
-      'drainrank_local_reports_v1': CitizenReport.encodeList([report]),
-    });
     await _setSmallViewport(tester);
     await tester.pumpWidget(_scaledApp(const TrackStatusTab()));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Your Supabase reports (1)'), findsOneWidget);
-    expect(find.textContaining('URGENT'), findsOneWidget);
+    expect(find.textContaining('Your reports (0)'), findsOneWidget);
+    expect(find.text('Sign in to view your reports.'), findsOneWidget);
+    expect(find.byType(RefreshIndicator), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

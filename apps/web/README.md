@@ -1,4 +1,4 @@
-# DrainRank municipal dashboard
+# Swachh Pravah Seva municipal dashboard
 
 The dashboard uses Supabase Auth for administrator sign-in and stores
 operational records in the existing protected `dashboard_state` Postgres row.
@@ -10,6 +10,11 @@ empty instead of loading sample records.
 
 Citizen submissions are read from the shared `citizen_reports` table and
 combined with dashboard-managed records for the report screens.
+Each report also creates or joins an inspection-area queue item. The first
+report fixes the area's center; later reports within 1 km are grouped there and
+add five priority points each (capped at 100). Assigning an inspection crew
+creates a field task. The field worker's inspection result moves the area to
+the cleaning queue when cleaning is required, or to monitoring otherwise.
 
 ## Supabase setup
 
@@ -22,26 +27,39 @@ combined with dashboard-managed records for the report screens.
    `../../backend/supabase/migrations`. They preserve the existing
    `citizen_reports`, `profiles`, `dashboard_state`, `credit_awards`, and
    `leave_requests` tables.
+   The `202610230001_citizen_report_inspection_flow.sql` migration adds the
+   field inspection result and live citizen-report notifications.
+   Apply `202610230002_reset_operational_data.sql` to enable the administrator
+   reset control, then apply `202610230003_dashboard_evidence_storage.sql`
+   to create the private dashboard evidence bucket and its admin-only policies.
 3. In Supabase Authentication, keep Email enabled. Public sign-ups must remain
    enabled while the citizen app uses email registration.
 4. Copy `.env.example` to `.env.local` and fill in the project URL and
    **publishable** key from Supabase Project Settings → API. Never use the
    `service_role` key in the browser or commit `.env.local`.
 
-## Cloudinary photo uploads
+## Reset test data
 
-1. Create a Cloudinary account and copy its **cloud name** from the dashboard.
-2. In Settings → Upload, create an **unsigned upload preset** restricted to
-   images. Set a 10 MB maximum and allow only the image formats needed by the
-   project, and set the preset's folder to `drainrank/evidence`. Keep the preset
-   unsigned; do not put the Cloudinary API secret in the web app.
-3. Add the cloud name and preset name to `apps/web/.env.local` as
-   `VITE_CLOUDINARY_CLOUD_NAME` and `VITE_CLOUDINARY_UPLOAD_PRESET`.
+After applying the reset migration, an authenticated administrator can use
+Administration → Reset all app data. The reset clears dashboard records and
+logs, citizen reports, field tasks and evidence, leave requests, credit
+history, and files in the `citizen-photos` and `work-photos` Supabase Storage
+buckets, including `dashboard-evidence`. It preserves Supabase
+admin/citizen/crew accounts and the crew roster; other dashboard settings
+return to defaults. The button requires typing `RESET DATA` and verifies the
+cleared state after reloading.
 
-Dashboard evidence uploads use the Cloudinary HTTPS API and store the returned
-secure URL with the dashboard record. Citizen and field photos use private
-Supabase Storage buckets. The web uploader can stay on Cloudinary; this does
-not affect the shared Supabase backend.
+## Private photo storage
+
+Citizen, field, and dashboard evidence photos use private Supabase Storage
+buckets. Dashboard images are stored in `dashboard-evidence` with a 10 MB
+limit and JPEG, PNG, WebP, or GIF formats. The bucket policies restrict
+uploads, reads, and deletion to active administrators. The browser stores only
+the object path in dashboard data and generates short-lived signed URLs for
+image previews.
+
+No image-provider credentials beyond the Supabase project URL and publishable
+key are needed in the web environment.
 
 ## Run and validate
 

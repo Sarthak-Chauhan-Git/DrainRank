@@ -164,7 +164,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   return (
     <main className="backend-gate">
       <form className="backend-login panel" onSubmit={signIn}>
-        <h1>DrainRank dashboard</h1>
+        <h1>Swachh Pravah Seva dashboard</h1>
         <p>Sign in with your authorized municipal staff account.</p>
         <label>
           Official email
@@ -208,7 +208,7 @@ function GateMessage({
     <main className="backend-gate">
       <section className="backend-login panel" aria-live="polite">
         {busy ? <div className="backend-spinner" aria-hidden="true" /> : null}
-        <h1>DrainRank dashboard</h1>
+        <h1>Swachh Pravah Seva dashboard</h1>
         <p>{message}</p>
         {action}
       </section>

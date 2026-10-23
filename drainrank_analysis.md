@@ -47,8 +47,8 @@ configured separately in Supabase. Keep both photo buckets private.
 
 - The web dashboard bridges assignments to `field_tasks` by matching worker
   IDs to crew Municipal IDs.
-- Field photos and citizen photos use Supabase Storage. The web dashboard's
-  separate evidence uploader still uses Cloudinary.
+- Dashboard evidence, field photos, and citizen photos use private Supabase
+  Storage buckets.
 - Field submissions are available to the field-app administrator review flow.
   The dashboard's manual evidence-review UI is not yet backed by those
   submissions; dashboard evidence approval and field evidence review are

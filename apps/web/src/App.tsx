@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   BrowserRouter,
   NavLink,
@@ -55,13 +55,20 @@ import {
   Search,
   ShieldCheck,
   Settings,
+  Trash2,
   UsersRound,
   Wrench,
 } from "lucide-react";
 import { createEmptyData } from "./emptyState";
-import { loadDashboardState, saveDashboardState } from "./dataProvider";
-import { uploadImageToCloudinary } from "./cloudinary";
+import {
+  loadDashboardState,
+  resetOperationalData,
+  refreshCitizenWorkflow,
+  saveDashboardState,
+} from "./dataProvider";
+import { uploadDashboardImage } from "./supabaseStorage";
 import { DashboardSessionContext } from "./dashboardSession";
+import { supabase } from "./supabase";
 import GlobalDrainAssistant from "./GlobalDrainAssistant";
 import MonitoringIntelligencePage from "./MonitoringIntelligencePage";
 
@@ -83,8 +90,62 @@ type OutcomeType =
 
 type ActivitySeverity = "info" | "warning" | "success" | "danger";
 
+function mergeRefreshedWorkflow(
+  current: AppState,
+  refreshed: Pick<AppState, "drains" | "reports">,
+): AppState {
+  const signature = (state: Pick<AppState, "drains" | "reports">) =>
+    JSON.stringify({
+      reports: state.reports.map(
+        ({ id, drainId, priority, status, backendStatus }) => ({
+          id,
+          drainId,
+          priority,
+          status,
+          backendStatus,
+        }),
+      ),
+      groups: state.drains
+        .filter((drain) => drain.citizenReportGroup)
+        .map(
+          ({
+            id,
+            status,
+            priority,
+            workStatus,
+            fieldTaskStatus,
+            inspectionOutcome,
+            sourceReportIds,
+          }) => ({
+            id,
+            status,
+            priority,
+            workStatus,
+            fieldTaskStatus,
+            inspectionOutcome,
+            sourceReportIds,
+          }),
+        ),
+    });
+  if (signature(current) === signature(refreshed)) return current;
+  return {
+    ...current,
+    reports: refreshed.reports,
+    drains: [
+      ...current.drains.filter((drain) => !drain.citizenReportGroup),
+      ...refreshed.drains.filter((drain) => drain.citizenReportGroup),
+    ],
+  };
+}
+
 export interface DrainRecord {
   id: string;
+  citizenReportGroup?: boolean;
+  sourceReportIds?: string[];
+  anchorLatitude?: number;
+  anchorLongitude?: number;
+  fieldTaskStatus?: string;
+  inspectionOutcome?: "cleaning_required" | "no_cleaning_required" | null;
   evidenceId?: string;
   location: string;
   ward: string;
@@ -98,6 +159,8 @@ export interface DrainRecord {
   condition: string;
   evidenceStatus: string;
   evidencePhoto?: string;
+  evidencePhotoPath?: string;
+  evidencePhotoLoadError?: string;
   lastObservation: string;
   assignedCrew?: string;
   assignedCrews?: string[];
@@ -112,6 +175,8 @@ export interface DrainRecord {
 export interface ReportRecord {
   id: string;
   drainId: string;
+  latitude?: number;
+  longitude?: number;
   reporterName: string;
   issueType: string;
   ward: string;
@@ -119,6 +184,8 @@ export interface ReportRecord {
   description: string;
   urgent: boolean;
   photo?: string;
+  photoPath?: string;
+  photoLoadError?: string;
   submittedAt: string;
   priority: number;
   reasons: string[];
@@ -279,6 +346,7 @@ interface ReportForm {
   description: string;
   urgent: boolean;
   photo?: string;
+  photoPath?: string;
 }
 
 interface InspectionForm {
@@ -287,6 +355,7 @@ interface InspectionForm {
   estimatedBlockage: number;
   notes: string;
   photo?: string;
+  photoPath?: string;
 }
 
 const navItems = [
@@ -534,16 +603,25 @@ function DrainRankApp() {
   const dashboardSession = useContext(DashboardSessionContext);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [appState, setAppState] = useState<AppState>(createEmptyData);
+  const appStateRef = useRef(appState);
   const [dataReady, setDataReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isRefreshingWorkflow, setIsRefreshingWorkflow] = useState(false);
+  const [workflowRefreshError, setWorkflowRefreshError] = useState<
+    string | null
+  >(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [submittedReportId, setSubmittedReportId] = useState<string | null>(
     null,
   );
   void submittedReportId;
+
+  useEffect(() => {
+    appStateRef.current = appState;
+  }, [appState]);
 
   useEffect(() => {
     let active = true;
@@ -563,6 +641,69 @@ function DrainRankApp() {
   }, [reloadToken]);
 
   useEffect(() => {
+    if (!dataReady || !supabase) return;
+    const client = supabase;
+    let active = true;
+    const refresh = async () => {
+      if (!active) return;
+      setIsRefreshingWorkflow(true);
+      try {
+        const refreshed = await refreshCitizenWorkflow(appStateRef.current);
+        if (!active) return;
+        setAppState((current) => mergeRefreshedWorkflow(current, refreshed));
+        setWorkflowRefreshError(null);
+      } catch (error) {
+        if (active) setWorkflowRefreshError(String(error));
+      } finally {
+        if (active) setIsRefreshingWorkflow(false);
+      }
+    };
+    const channel = client
+      .channel("citizen-report-inspection-queue")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "citizen_reports",
+        },
+        () => void refresh(),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "field_tasks",
+        },
+        (payload) => {
+          const currentGroup = appStateRef.current.drains.find(
+            (drain) =>
+              drain.citizenReportGroup && drain.id === payload.new.id,
+          );
+          if (
+            currentGroup &&
+            (currentGroup.fieldTaskStatus !== payload.new.status ||
+              currentGroup.inspectionOutcome !==
+                payload.new.inspection_outcome)
+          )
+            void refresh();
+        },
+      )
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" && active) {
+          setWorkflowRefreshError(
+            "Live report updates are unavailable. Use Refresh queue to retry.",
+          );
+        }
+      });
+    return () => {
+      active = false;
+      void client.removeChannel(channel);
+    };
+  }, [dataReady]);
+
+  useEffect(() => {
     if (!dataReady) return;
     const timeout = window.setTimeout(() => {
       setIsSaving(true);
@@ -579,6 +720,45 @@ function DrainRankApp() {
     const timeout = window.setTimeout(() => setToast(null), 2600);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  const handleOperationalDataReset = async () => {
+    const currentState = appStateRef.current;
+    const resetState: AppState = {
+      ...createEmptyData(),
+      workers: currentState.workers,
+      crews: currentState.crews,
+    };
+
+    setDataReady(false);
+    let result: Awaited<ReturnType<typeof resetOperationalData>>;
+    try {
+      result = await resetOperationalData(resetState);
+    } catch (error) {
+      setDataReady(true);
+      throw error;
+    }
+
+    try {
+      const verifiedState = await loadDashboardState();
+      appStateRef.current = verifiedState;
+      setAppState(verifiedState);
+      setLoadError(null);
+      setSaveError(null);
+      setDataReady(true);
+
+      if (verifiedState.drains.length || verifiedState.reports.length) {
+        throw new Error(
+          `Reset ran, but ${verifiedState.drains.length} incident(s) and ${verifiedState.reports.length} report(s) remain after reloading Supabase. Check for another client restoring records or verify the reset backend function.`,
+        );
+      }
+
+      setToast("App data has been reset and verified.");
+      return result.photoCleanupError;
+    } catch (error) {
+      setDataReady(true);
+      throw error;
+    }
+  };
 
   const addActivity = (
     title: string,
@@ -664,6 +844,7 @@ function DrainRankApp() {
       description: form.description,
       urgent: form.urgent,
       photo: form.photo,
+      photoPath: form.photoPath,
       submittedAt: new Date().toISOString(),
       priority: assessment.score,
       reasons: assessment.reasons,
@@ -705,6 +886,8 @@ function DrainRankApp() {
       condition: payload.observedCondition,
       evidenceStatus: "Inspection complete",
       evidencePhoto: payload.photo,
+      evidencePhotoPath: payload.photoPath,
+      evidencePhotoLoadError: undefined,
       lastObservation: new Date().toISOString(),
       lastUpdated: new Date().toISOString(),
       reason: payload.notes || drain.reason,
@@ -739,6 +922,7 @@ function DrainRankApp() {
         .filter(Boolean),
       evidenceStatus: "Temporary evidence awaiting review",
       workStatus: `Cleaning assigned · evidence pending`,
+      fieldTaskStatus: "Pending",
       reason: note || drain.reason,
       deadlineAt: completionTime,
       assignedShift: shift,
@@ -761,6 +945,7 @@ function DrainRankApp() {
   ) => {
     updateDrainById(drainId, (drain) => ({
       ...drain,
+      fieldTaskStatus: "Pending",
       assignedCrew: crew,
       assignedCrews: crew
         .split(",")
@@ -771,6 +956,14 @@ function DrainRankApp() {
       deadlineAt: completionTime,
       assignedShift: shift,
       lastUpdated: new Date().toISOString(),
+    }));
+    setAppState((previous) => ({
+      ...previous,
+      reports: previous.reports.map((report) =>
+        report.drainId === drainId
+          ? { ...report, backendStatus: "work_assigned" }
+          : report,
+      ),
     }));
     addActivity(
       "Inspection crew assigned",
@@ -1240,12 +1433,9 @@ function DrainRankApp() {
     <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
         <div className="brand-panel">
-          <img className="brand-logo" src="/logo.png" alt="DrainRank" />
+          <img className="brand-logo" src="/logo.png" alt="Swachh Pravah Seva" />
           <div>
-            <div className="brand-name">
-              <span>Drain</span>
-              <strong>Rank</strong>
-            </div>
+            <div className="brand-name">Swachh Pravah Seva</div>
             <div className="brand-subtitle">
               From Citizen Report to Verified Outcome
             </div>
@@ -1294,11 +1484,33 @@ function DrainRankApp() {
             className={`backend-sync-status ${saveError ? "error" : "synced"}`}
             role="status"
           >
-            {saveError
+            {workflowRefreshError
+              ? `Queue refresh failed: ${workflowRefreshError}`
+              : saveError
               ? `Save failed: ${saveError}`
               : isSaving
                 ? "Saving to Supabase…"
                 : "Connected to Supabase"}
+            <button
+              type="button"
+              disabled={isRefreshingWorkflow}
+              onClick={() => {
+                setIsRefreshingWorkflow(true);
+                void refreshCitizenWorkflow(appStateRef.current)
+                  .then((refreshed) => {
+                    setAppState((current) =>
+                      mergeRefreshedWorkflow(current, refreshed),
+                    );
+                    setWorkflowRefreshError(null);
+                  })
+                  .catch((error: unknown) =>
+                    setWorkflowRefreshError(String(error)),
+                  )
+                  .finally(() => setIsRefreshingWorkflow(false));
+              }}
+            >
+              {isRefreshingWorkflow ? "Refreshing…" : "Refresh queue"}
+            </button>
             {saveError ? (
               <button
                 type="button"
@@ -1539,6 +1751,7 @@ function DrainRankApp() {
               onPreferencesChange={(preferences) =>
                 setAppState((previous) => ({ ...previous, preferences }))
               }
+              onResetData={handleOperationalDataReset}
             />
           }
           />
@@ -2326,6 +2539,7 @@ function ReportPage({
     urgent: false,
   });
   const [photoPreview, setPhotoPreview] = useState<string | undefined>();
+  const [photoPath, setPhotoPath] = useState<string | undefined>();
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
 
@@ -2338,7 +2552,7 @@ function ReportPage({
       return;
     }
 
-    onSubmit({ ...form, photo: photoPreview });
+    onSubmit({ ...form, photo: photoPreview, photoPath });
     setForm({
       reporterName: "",
       issueType: "Blocked Drain",
@@ -2348,6 +2562,7 @@ function ReportPage({
       urgent: false,
     });
     setPhotoPreview(undefined);
+    setPhotoPath(undefined);
   };
 
   const handlePhotoUpload = async (
@@ -2358,9 +2573,12 @@ function ReportPage({
     setPhotoUploading(true);
     setPhotoError(null);
     try {
-      setPhotoPreview(await uploadImageToCloudinary(file));
+      const uploaded = await uploadDashboardImage(file);
+      setPhotoPreview(uploaded.signedUrl);
+      setPhotoPath(uploaded.path);
     } catch (error) {
       setPhotoPreview(undefined);
+      setPhotoPath(undefined);
       setPhotoError(String(error));
     } finally {
       setPhotoUploading(false);
@@ -2802,6 +3020,7 @@ function InspectionModal({
   );
   const [notes, setNotes] = useState("");
   const [photo, setPhoto] = useState<string | undefined>();
+  const [photoPath, setPhotoPath] = useState<string | undefined>();
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
 
@@ -2813,6 +3032,7 @@ function InspectionModal({
       estimatedBlockage,
       notes,
       photo,
+      photoPath,
     });
   };
 
@@ -2874,9 +3094,12 @@ function InspectionModal({
                 setPhotoUploading(true);
                 setPhotoError(null);
                 try {
-                  setPhoto(await uploadImageToCloudinary(file));
+                  const uploaded = await uploadDashboardImage(file);
+                  setPhoto(uploaded.signedUrl);
+                  setPhotoPath(uploaded.path);
                 } catch (error) {
                   setPhoto(undefined);
+                  setPhotoPath(undefined);
                   setPhotoError(String(error));
                 } finally {
                   setPhotoUploading(false);
@@ -4257,6 +4480,7 @@ function ReportsPage({
                 <th>Issue</th>
                 <th>Ward</th>
                 <th>Priority</th>
+                <th>Evidence</th>
                 <th>Submission</th>
               </tr>
             </thead>
@@ -4267,6 +4491,13 @@ function ReportsPage({
                   <td>{report.issueType}</td>
                   <td>{report.ward}</td>
                   <td>{report.priority}</td>
+                  <td title={report.photoLoadError}>
+                    {report.photoLoadError
+                      ? "Photo unavailable"
+                      : report.photo
+                        ? "Photo attached"
+                        : "No photo"}
+                  </td>
                   <td>{formatDate(report.submittedAt)}</td>
                 </tr>
               ))}
@@ -5856,13 +6087,42 @@ function AdministrationPage({
   email,
   preferences,
   onPreferencesChange,
+  onResetData,
 }: {
   email: string;
   preferences: { notifications: boolean; dailyDigest: boolean };
   onPreferencesChange: (
     preferences: { notifications: boolean; dailyDigest: boolean },
   ) => void;
+  onResetData: () => Promise<string | null>;
 }) {
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+
+  const confirmDataReset = async () => {
+    const confirmation = window.prompt(
+      "This permanently deletes all app data except accounts and crew rosters. Type RESET DATA to continue.",
+    );
+    if (confirmation !== "RESET DATA") return;
+
+    setIsResetting(true);
+    setResetMessage(null);
+    try {
+      const photoCleanupError = await onResetData();
+      setResetMessage(
+        photoCleanupError
+          ? `App data was reset, but Supabase photo cleanup failed: ${photoCleanupError}`
+          : "App data and Supabase Storage photos were reset.",
+      );
+    } catch (error) {
+      setResetMessage(
+        `Reset failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   return (
     <div className="page-stack settings-page">
       <div className="settings-heading">
@@ -6058,6 +6318,43 @@ function AdministrationPage({
               </small>
             </div>
           </div>
+        </section>
+
+        <section className="panel settings-panel settings-wide">
+          <div className="settings-section-heading">
+            <div>
+              <h3>Reset operational data</h3>
+              <p className="panel-note">
+                Clear all app data, reports, operational logs, work history,
+                settings, and Supabase photos for a fresh test.
+              </p>
+            </div>
+            <ShieldAlert size={20} color="#b42318" />
+          </div>
+          <div className="settings-logout">
+            <div>
+              <strong>Admin, citizen, and crew accounts are kept</strong>
+              <small>
+                Supabase accounts and crew rosters remain. App settings return
+                to defaults. Stored dashboard evidence images are removed with
+                the rest of the Supabase photos.
+              </small>
+            </div>
+            <button
+              type="button"
+              className="btn-danger"
+              disabled={isResetting}
+              onClick={() => void confirmDataReset()}
+            >
+              <Trash2 size={15} />
+              {isResetting ? "Resetting..." : "Reset all app data"}
+            </button>
+          </div>
+          {resetMessage ? (
+            <p className="panel-note" role="status" aria-live="polite">
+              {resetMessage}
+            </p>
+          ) : null}
         </section>
       </div>
     </div>

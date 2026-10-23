@@ -104,7 +104,7 @@ export default function GlobalDrainAssistant({
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      text: "Ask about case priorities, drainage history, inspections, or follow-up actions. Qwen3 only receives the sanitized DrainRank records needed to answer.",
+      text: "Ask about case priorities, drainage history, inspections, or follow-up actions. Qwen3 only receives the sanitized Swachh Pravah Seva records needed to answer.",
     },
   ]);
   const snapshot = useMemo(
@@ -163,13 +163,13 @@ export default function GlobalDrainAssistant({
 
       const result: unknown = await response.json();
       if (!isChatApiResponse(result)) {
-        throw new Error(`DrainRank AI returned an unexpected response (HTTP ${response.status}).`);
+        throw new Error(`Swachh Pravah Seva AI returned an unexpected response (HTTP ${response.status}).`);
       }
       if (!response.ok) {
-        throw new Error(result.error ?? `DrainRank AI request failed (HTTP ${response.status}).`);
+        throw new Error(result.error ?? `Swachh Pravah Seva AI request failed (HTTP ${response.status}).`);
       }
       if (typeof result.answer !== "string" || !result.answer.trim()) {
-        throw new Error("DrainRank AI returned an empty answer.");
+        throw new Error("Swachh Pravah Seva AI returned an empty answer.");
       }
       setMessages((previous) => [
         ...previous,
@@ -179,7 +179,7 @@ export default function GlobalDrainAssistant({
       const message =
         error instanceof Error
           ? error.message
-          : "DrainRank AI request failed unexpectedly.";
+          : "Swachh Pravah Seva AI request failed unexpectedly.";
       setMessages((previous) => [
         ...previous,
         {
@@ -196,18 +196,18 @@ export default function GlobalDrainAssistant({
     <div className="global-drain-assistant">
       {open ? (
         <section
-          aria-label="DrainRank work assistant"
+          aria-label="Swachh Pravah Seva work assistant"
           aria-modal="false"
           className="global-assistant-panel"
           role="dialog"
         >
           <header className="global-assistant-header">
             <div>
-              <span><BrainCircuit size={16} /> DrainRank assistant</span>
+              <span><BrainCircuit size={16} /> Swachh Pravah Seva assistant</span>
               <small><Sparkles size={12} /> Qwen3 8B · local Ollama</small>
             </div>
             <button
-              aria-label="Close DrainRank assistant"
+              aria-label="Close Swachh Pravah Seva assistant"
               onClick={() => setOpen(false)}
               type="button"
             >
@@ -233,7 +233,7 @@ export default function GlobalDrainAssistant({
           </div>
           <form className="global-assistant-form" onSubmit={submitQuestion}>
             <input
-              aria-label="Ask a DrainRank work question"
+              aria-label="Ask a Swachh Pravah Seva work question"
               disabled={loading}
               onChange={(event) => setQuestion(event.target.value)}
               placeholder="Ask about a drain or work item…"
@@ -254,13 +254,13 @@ export default function GlobalDrainAssistant({
       ) : null}
       <button
         aria-expanded={open}
-        aria-label={open ? "Close DrainRank assistant" : "Open DrainRank assistant"}
+        aria-label={open ? "Close Swachh Pravah Seva assistant" : "Open Swachh Pravah Seva assistant"}
         className="global-assistant-trigger"
         onClick={() => setOpen((current) => !current)}
         type="button"
       >
         {open ? <X size={20} /> : <MessageCircle size={20} />}
-        <span>{open ? "Close" : "Ask DrainRank"}</span>
+        <span>{open ? "Close" : "Ask Swachh Pravah Seva"}</span>
       </button>
     </div>
   );

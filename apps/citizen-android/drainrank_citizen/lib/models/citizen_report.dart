@@ -5,24 +5,24 @@ enum IssueCategory {
     label: 'Blocked Drain',
     code: 'BLOCKED_DRAIN',
     bScoreInput: 1.0,
-    triageQueue: 'Cleaning Queue',
+    triageQueue: 'Inspection Queue',
   ),
   waterlogging(
     label: 'Waterlogging',
     code: 'WATERLOGGING',
     bScoreInput: 1.0,
-    triageQueue: 'Cleaning Queue',
+    triageQueue: 'Inspection Queue',
   ),
   overflow(
     label: 'Overflow',
     code: 'OVERFLOW',
     bScoreInput: 1.0,
-    triageQueue: 'Cleaning Queue',
+    triageQueue: 'Inspection Queue',
   ),
   needsInspection(
     label: 'Needs Inspection',
     code: 'NEEDS_INSPECTION',
-    bScoreInput: 0.5, // Routes to Inspection Queue (U = 1.0)
+    bScoreInput: 0.5,
     triageQueue: 'Inspection Queue',
   ),
   other(

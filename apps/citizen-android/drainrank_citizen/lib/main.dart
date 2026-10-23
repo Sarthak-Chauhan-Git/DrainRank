@@ -1,12 +1,13 @@
 import 'dart:io';
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'core/constants.dart';
@@ -60,7 +61,7 @@ class DrainRankCitizenApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'DrainRank Citizen',
+      title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
 
       theme: ThemeData(
@@ -206,8 +207,7 @@ class _CitizenEmailAuthPageState extends State<CitizenEmailAuthPage> {
         final response = await auth.signUp(email: email, password: password);
         if (mounted && response.session == null) {
           setState(
-            () => _error =
-                'Account created. Check your email to confirm it, then sign in.',
+            () => _error = 'Account created. Check your email to confirm it, then sign in.',
           );
         }
       } else {
@@ -236,12 +236,22 @@ class _CitizenEmailAuthPageState extends State<CitizenEmailAuthPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Icon(
-                      Icons.water_drop_rounded,
-                      size: 48,
-                      color: Color(0xFF0F766E),
+                    Image.asset(
+                      'assets/logo.png',
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.contain,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'पहचान से समाधान तक।',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFF0F766E),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     Text(
                       _mode == _AuthMode.signUp
                           ? 'Create your citizen account'
@@ -369,46 +379,47 @@ class _DrainRankHomeShellState extends State<DrainRankHomeShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 82,
-        titleSpacing: 16,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+        toolbarHeight: 72,
+        titleSpacing: 12,
+        title: Row(
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF0F766E), Color(0xFF14B8A6)],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.water_drop_rounded,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  'DrainRank',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 20,
-                    letterSpacing: -0.4,
-                  ),
-                ),
-              ],
+            SizedBox(
+              width: 44,
+              height: 44,
+              child: Image.asset(
+                'assets/logo.png',
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+              ),
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Cleaner Drains, Safer Cities',
-              style: TextStyle(
-                fontSize: 11,
-                color: Color(0xFFCBD5E1),
-                fontWeight: FontWeight.w400,
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    AppConstants.appName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  SizedBox(height: 3),
+                  Text(
+                    'पहचान से समाधान तक।',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFFCBD5E1),
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -492,10 +503,10 @@ class _DrainRankHomeShellState extends State<DrainRankHomeShell> {
                 ),
               ),
               PopupMenuItem(
-                value: 'About DrainRank',
+                value: 'About Swachh Pravah',
                 child: ListTile(
                   leading: Icon(Icons.info_outline_rounded),
-                  title: Text('About DrainRank'),
+                  title: Text('About Swachh Pravah'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -578,12 +589,10 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       UrgencyConsequence.standardResidential;
 
   bool _isCheckingUrgency = false;
-  bool _urgencyLocationVerified = false;
-  String? _urgencyVerificationMessage;
+  int _urgencyLookupGeneration = 0;
 
   bool _isLoadingGps = false;
   bool _isSubmitting = false;
-  bool _syntheticDemoPinMode = false;
 
   Future<void> _captureGeotaggedPhoto() async {
     setState(() => _isLoadingGps = true);
@@ -606,11 +615,21 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       double lat;
       double lng;
       double acc;
+      final preferences = await SharedPreferences.getInstance();
+      final useFixedLocation =
+          kDebugMode &&
+          preferences.getBool('citizen_use_fixed_test_location') == true;
+      final fixedLatitude = preferences.getDouble(
+        'citizen_fixed_test_latitude',
+      );
+      final fixedLongitude = preferences.getDouble(
+        'citizen_fixed_test_longitude',
+      );
 
-      if (_syntheticDemoPinMode) {
-        lat = kDemoDrainInventory.first.latitude;
-        lng = kDemoDrainInventory.first.longitude;
-        acc = 3.5;
+      if (useFixedLocation && fixedLatitude != null && fixedLongitude != null) {
+        lat = fixedLatitude;
+        lng = fixedLongitude;
+        acc = 5;
       } else {
         final pos = await DrainRankEngine.acquireGeotagPosition();
         lat = pos.latitude;
@@ -627,8 +646,6 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         _latitude = lat;
         _longitude = lng;
         _gpsAccuracy = acc;
-        _urgencyLocationVerified = false;
-        _urgencyVerificationMessage = null;
         _isUrgentFlagged = false;
         _selectedConsequence = UrgencyConsequence.standardResidential;
         _matchedDrain = matched;
@@ -636,8 +653,6 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         _aiConfidence = null;
         _selectedCategory = IssueCategory.blockedDrain;
 
-        _isUrgentFlagged = false;
-        _selectedConsequence = UrgencyConsequence.standardResidential;
         _isLoadingGps = false;
       });
       await _verifyHighUrgencyLocation();
@@ -656,28 +671,20 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
   }
 
   Future<void> _verifyHighUrgencyLocation() async {
-    if (_isCheckingUrgency) return;
-
     // Use the coordinates associated with the current report.
     final latitude = _latitude;
     final longitude = _longitude;
 
     if (latitude == null || longitude == null) {
-      setState(() {
-        _urgencyLocationVerified = false;
-        _isUrgentFlagged = false;
-        _selectedConsequence = UrgencyConsequence.standardResidential;
-        _urgencyVerificationMessage =
-            'Capture a geotagged photo before verifying.';
-      });
+      setState(() => _isUrgentFlagged = false);
       return;
     }
 
+    final lookupGeneration = ++_urgencyLookupGeneration;
     setState(() {
       _isCheckingUrgency = true;
-      _urgencyLocationVerified = false;
-      _urgencyVerificationMessage =
-          'Checking for nearby high-urgency facilities within 500 m...';
+      _isUrgentFlagged = false;
+      _selectedConsequence = UrgencyConsequence.standardResidential;
     });
 
     try {
@@ -697,49 +704,32 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         );
       }).toList();
 
-      if (!mounted) return;
+      if (!mounted || lookupGeneration != _urgencyLookupGeneration) return;
 
       if (nearbyPlaces.isEmpty) {
         setState(() {
-          _urgencyLocationVerified = false;
           _isUrgentFlagged = false;
           _selectedConsequence = UrgencyConsequence.standardResidential;
-          _urgencyVerificationMessage =
-              'No matching high-urgency facilities found within 500 m.';
         });
         return;
       }
 
-      final place = nearbyPlaces.first;
-      final distance = Geolocator.distanceBetween(
-        latitude,
-        longitude,
-        place.latitude,
-        place.longitude,
-      );
-
       setState(() {
-        _urgencyLocationVerified = true;
         _isUrgentFlagged = true;
         _selectedConsequence = UrgencyConsequence.criticalHospitalSchool;
-        _urgencyVerificationMessage =
-            '${place.name} (${place.type}) verified '
-            '${distance.round()} m from report location.';
       });
     } catch (e, stackTrace) {
       debugPrint('URGENT FACILITY VERIFICATION ERROR: $e');
       debugPrintStack(stackTrace: stackTrace);
 
-      if (!mounted) return;
+      if (!mounted || lookupGeneration != _urgencyLookupGeneration) return;
 
       setState(() {
-        _urgencyLocationVerified = false;
         _isUrgentFlagged = false;
         _selectedConsequence = UrgencyConsequence.standardResidential;
-        _urgencyVerificationMessage = 'Verification failed: $e';
       });
     } finally {
-      if (mounted) {
+      if (mounted && lookupGeneration == _urgencyLookupGeneration) {
         setState(() {
           _isCheckingUrgency = false;
         });
@@ -748,17 +738,6 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
   }
 
   Future<void> _submitCitizenReport() async {
-    if (_isUrgentFlagged && !_urgencyLocationVerified) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'High urgency requires verified hospital or school '
-            'within 500 metres of the report location.',
-          ),
-        ),
-      );
-      return;
-    }
     if (_capturedImage == null || _latitude == null || _longitude == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -915,10 +894,6 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
               ),
               const SizedBox(height: 6),
               Text('Linked Drain ID: ${newReport.linkedDrainId}'),
-              Text('Assigned Queue: ${newReport.issueCategory.triageQueue}'),
-              Text(
-                'Preliminary Priority Score: ${newReport.estimatedPriorityScore}',
-              ),
               const Divider(height: 18),
               const Text(
                 '15m Same-Device Geotag Lock is now active for this coordinate to prevent duplicate spam.',
@@ -1015,36 +990,31 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
     );
   }
 
+  void _showUrgencyInformation() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('How is urgency assessed?'),
+        content: const Text(
+          'The report location is checked for nearby critical facilities '
+          'within 500 metres. Reports near qualifying facilities may be '
+          'marked high urgency automatically.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Card(
-          elevation: 0,
-          color: const Color(0xFFE3F2FD),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-            side: const BorderSide(color: Color(0xFF90CAF9)),
-          ),
-          child: SwitchListTile(
-            dense: true,
-            title: const Text(
-              'Synthetic Ward 12 Coordinates (Demo Mode • FR-10)',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
-            ),
-            subtitle: Text(
-              _syntheticDemoPinMode
-                  ? 'Snapping GPS to DR-1024 (Lat 28.9845, Lng 77.7064) for deterministic demo'
-                  : 'Using live hardware GPS from your phone',
-              style: const TextStyle(fontSize: 11.5),
-            ),
-            value: _syntheticDemoPinMode,
-            onChanged: (val) => setState(() => _syntheticDemoPinMode = val),
-          ),
-        ),
-        const SizedBox(height: 12),
-
         // 1. GEOTAG PHOTOGRAPH CARD
         Card(
           elevation: 2,
@@ -1394,10 +1364,6 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                            subtitle: Text(
-                              'Routes to: ${category.triageQueue} (Factor weight: ${category.bScoreInput})',
-                              style: const TextStyle(fontSize: 11.5),
-                            ),
                             value: category,
                           ),
                         )
@@ -1410,176 +1376,106 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         ),
         const SizedBox(height: 12),
 
-        // 3. URGENCY FLAG & V-CONSEQUENCE SELECTOR
-        Card(
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _isUrgentFlagged ? const Color(0xFFFFE4E6) : Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: _isUrgentFlagged
+                  ? const Color(0xFFB91C1C)
+                  : const Color(0xFFD8E4E8),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 14,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8, right: 8),
-                      child: Icon(
-                        Icons.warning_amber_rounded,
-                        color: _isUrgentFlagged
-                            ? Colors.red.shade700
-                            : Colors.grey.shade700,
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '3. High-Urgency Flag',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const Text(
-                            'Flag critical access routes, hospital roads, or active overflow hazards',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: _isUrgentFlagged,
-                      onChanged: (val) {
-                        if (val && !_urgencyLocationVerified) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Verify nearby facilities before enabling high urgency.',
-                              ),
-                            ),
-                          );
-                          return;
-                        }
-
-                        setState(() {
-                          _isUrgentFlagged = val;
-
-                          _selectedConsequence = val
-                              ? UrgencyConsequence.criticalHospitalSchool
-                              : UrgencyConsequence.standardResidential;
-                        });
-                      },
-                    ),
-                  ],
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 280),
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: _isUrgentFlagged
+                      ? const Color(0xFF991B1B)
+                      : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(13),
                 ),
-
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
+                child: Icon(
+                  _isUrgentFlagged
+                      ? Icons.priority_high_rounded
+                      : Icons.verified_outlined,
+                  color: _isUrgentFlagged
+                      ? Colors.white
+                      : const Color(0xFF475569),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
                   child: Column(
+                    key: ValueKey(
+                      _isCheckingUrgency ? 'checking' : _isUrgentFlagged,
+                    ),
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: _isCheckingUrgency
-                              ? null
-                              : _verifyHighUrgencyLocation,
-                          icon: _isCheckingUrgency
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.location_searching),
-                          label: Text(
-                            _isCheckingUrgency
-                                ? 'Checking nearby hospitals and schools...'
-                                : 'Verify hospital / school within 500 m',
-                          ),
+                      Text(
+                        _isCheckingUrgency
+                            ? 'Checking area priority'
+                            : _isUrgentFlagged
+                            ? 'High urgency detected'
+                            : 'Standard priority',
+                        style: TextStyle(
+                          color: _isUrgentFlagged
+                              ? const Color(0xFF7F1D1D)
+                              : const Color(0xFF0F172A),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
                         ),
                       ),
-                      if (_urgencyVerificationMessage != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                _urgencyLocationVerified
-                                    ? Icons.verified
-                                    : Icons.info_outline,
-                                size: 16,
-                                color: _urgencyLocationVerified
-                                    ? Colors.green
-                                    : Colors.orange,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  _urgencyVerificationMessage!,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ),
-                            ],
-                          ),
+                      const SizedBox(height: 3),
+                      Text(
+                        _isCheckingUrgency
+                            ? 'Assessing nearby facilities…'
+                            : _isUrgentFlagged
+                            ? 'This area is near a critical facility.'
+                            : 'Urgency is assessed automatically from the area.',
+                        style: TextStyle(
+                          color: _isUrgentFlagged
+                              ? const Color(0xFF991B1B)
+                              : const Color(0xFF64748B),
+                          fontSize: 12,
                         ),
+                      ),
                     ],
                   ),
                 ),
-
-                const Divider(),
-                const Text(
-                  'Site Criticality / Consequence Factor (V):',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              IconButton(
+                tooltip: 'About automatic urgency',
+                onPressed: _showUrgencyInformation,
+                icon: Icon(
+                  Icons.info_outline_rounded,
+                  color: _isUrgentFlagged
+                      ? const Color(0xFF991B1B)
+                      : const Color(0xFF64748B),
                 ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<UrgencyConsequence>(
-                  isExpanded: true,
-                  key: ValueKey(_selectedConsequence),
-                  initialValue: _selectedConsequence,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                  ),
-                  items: UrgencyConsequence.values
-                      .map(
-                        (u) => DropdownMenuItem(
-                          value: u,
-                          child: Text(
-                            '${u.label} (V=${u.vWeight})',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _selectedConsequence = val;
-
-                        // Choosing a consequence alone must not verify high urgency.
-                        if (val == UrgencyConsequence.standardResidential) {
-                          _isUrgentFlagged = false;
-                        }
-                      });
-                    }
-                  },
+              ),
+              if (_isCheckingUrgency)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
-              ],
-            ),
+            ],
           ),
         ),
         const SizedBox(height: 12),
@@ -1604,8 +1500,7 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                   controller: _descController,
                   maxLines: 2,
                   decoration: InputDecoration(
-                    hintText:
-                        'e.g., Drain is completely blocked with plastic garbage near Hospital Gate 2',
+                    hintText: 'e.g., Drain is completely blocked with plastic garbage near Hospital Gate 2',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -1798,52 +1693,36 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
     }
 
     if (_reports.isEmpty && _loadError == null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.assignment_late_outlined,
-                size: 64,
-                color: Colors.blueGrey.shade300,
+      return RefreshIndicator(
+        onRefresh: _loadReports,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.assignment_late_outlined,
+                    size: 64,
+                    color: Colors.blueGrey.shade300,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'No Reports Submitted Yet',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Switch to Report Issue to submit your first report.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              const Text(
-                'No Reports Submitted Yet',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Switch to Step 1 to capture a geotagged drain photograph and generate a Unique Report ID.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.black54),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_reports.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.cloud_off_outlined, size: 48),
-              const SizedBox(height: 12),
-              Text(_loadError!, textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _loading ? null : _loadReports,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
@@ -1852,23 +1731,22 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          color: const Color(0xFFE3F2FD),
+          color: const Color(0xFFEAF4F3),
           child: Wrap(
             alignment: WrapAlignment.spaceBetween,
             crossAxisAlignment: WrapCrossAlignment.center,
             runSpacing: 4,
             children: [
               Text(
-                'Your Supabase reports (${_reports.length})',
+                'Your reports (${_reports.length})',
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              IconButton(
-                tooltip: 'Refresh reports',
-                onPressed: _loading ? null : _loadReports,
-                icon: const Icon(Icons.refresh, size: 18),
+              const Text(
+                'Pull down to refresh',
+                style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
             ],
           ),
@@ -1881,177 +1759,205 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
             ],
           ),
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(14),
-            itemCount: _reports.length,
-            itemBuilder: (context, index) {
-              final r = _reports[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 14),
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        alignment: WrapAlignment.spaceBetween,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        runSpacing: 6,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
+          child: RefreshIndicator(
+            onRefresh: _loadReports,
+            child: _reports.isEmpty
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: const [
+                      Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.cloud_off_outlined, size: 48),
+                            SizedBox(height: 12),
+                            Text(
+                              'Pull down to try again.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.black54),
                             ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF0A2540),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              r.reportId,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                          ),
-                          if (r.isUrgentFlagged)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.red.shade100,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'URGENT • V=${r.urgencyConsequence.vWeight}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Colors.red.shade900,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: r.imageUrl != null
-                                ? Image.network(
-                                    r.imageUrl!,
-                                    width: 72,
-                                    height: 72,
-                                    fit: BoxFit.cover,
-                                    errorBuilder:
-                                        (context, error, stackTrace) =>
-                                            _reportImagePlaceholder(),
-                                  )
-                                : r.imagePath.isNotEmpty
-                                ? Image.file(
-                                    File(r.imagePath),
-                                    width: 72,
-                                    height: 72,
-                                    fit: BoxFit.cover,
-                                    errorBuilder:
-                                        (context, error, stackTrace) =>
-                                            _reportImagePlaceholder(),
-                                  )
-                                : _reportImagePlaceholder(),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${r.issueCategory.label} • ${r.linkedDrainId}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                                Text(
-                                  'GPS: ${r.latitude.toStringAsFixed(4)}, ${r.longitude.toStringAsFixed(4)}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.black54,
-                                  ),
-                                ),
-                                Text(
-                                  'Triage: ${r.issueCategory.triageQueue} (Score: ${r.estimatedPriorityScore})',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF0D47A1),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 22),
-                      const Text(
-                        'Step 8: Live Municipal Workflow Status',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      ...ReportWorkflowStatus.values.map((stage) {
-                        final isDone = stage.stepIndex <= r.status.stepIndex;
-                        final isCurrent = stage.stepIndex == r.status.stepIndex;
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 3),
-                          child: Row(
+                    ],
+                  )
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(14),
+                    itemCount: _reports.length,
+                    itemBuilder: (context, index) {
+                      final r = _reports[index];
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 14),
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(
-                                isDone
-                                    ? Icons.check_circle
-                                    : Icons.radio_button_unchecked,
-                                size: 18,
-                                color: isCurrent
-                                    ? Colors.orange.shade800
-                                    : (isDone ? Colors.green : Colors.grey),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  stage.title,
-                                  style: TextStyle(
-                                    fontWeight: isCurrent
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    color: isDone
-                                        ? Colors.black87
-                                        : Colors.grey,
-                                    fontSize: 13,
+                              Wrap(
+                                alignment: WrapAlignment.spaceBetween,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                runSpacing: 6,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF0A2540),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      r.reportId,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontFamily: 'monospace',
+                                      ),
+                                    ),
                                   ),
+                                  if (r.isUrgentFlagged)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFE4E6),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        'HIGH URGENCY',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Color(0xFF991B1B),
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: r.imageUrl != null
+                                        ? Image.network(
+                                            r.imageUrl!,
+                                            width: 72,
+                                            height: 72,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (
+                                              context,
+                                              error,
+                                              stackTrace,
+                                            ) => _reportImagePlaceholder(),
+                                          )
+                                        : r.imagePath.isNotEmpty
+                                        ? Image.file(
+                                            File(r.imagePath),
+                                            width: 72,
+                                            height: 72,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (
+                                              context,
+                                              error,
+                                              stackTrace,
+                                            ) => _reportImagePlaceholder(),
+                                          )
+                                        : _reportImagePlaceholder(),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${r.issueCategory.label} • ${r.linkedDrainId}',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                        Text(
+                                          'GPS: ${r.latitude.toStringAsFixed(4)}, ${r.longitude.toStringAsFixed(4)}',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const Divider(height: 22),
+                              const Text(
+                                'Step 8: Live Municipal Workflow Status',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
                                 ),
                               ),
+                              const SizedBox(height: 8),
+                              ...ReportWorkflowStatus.values.map((stage) {
+                                final isDone =
+                                    stage.stepIndex <= r.status.stepIndex;
+                                final isCurrent =
+                                    stage.stepIndex == r.status.stepIndex;
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 3,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        isDone
+                                            ? Icons.check_circle
+                                            : Icons.radio_button_unchecked,
+                                        size: 18,
+                                        color: isCurrent
+                                            ? Colors.orange.shade800
+                                            : (isDone
+                                                  ? Colors.green
+                                                  : Colors.grey),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          stage.title,
+                                          style: TextStyle(
+                                            fontWeight: isCurrent
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
+                                            color: isDone
+                                                ? Colors.black87
+                                                : Colors.grey,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                              const SizedBox(height: 10),
                             ],
                           ),
-                        );
-                      }),
-                      const SizedBox(height: 10),
-                    ],
+                        ),
+                      );
+                    },
                   ),
-                ),
-              );
-            },
           ),
         ),
       ],
@@ -2079,6 +1985,110 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
   bool notificationsEnabled = true;
   bool locationEnabled = true;
   bool confirmationEnabled = true;
+  final _fixedLatitudeController = TextEditingController();
+  final _fixedLongitudeController = TextEditingController();
+  bool _fixedLocationEnabled = false;
+  bool _fixedLocationLoading = true;
+  String? _fixedLocationError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFixedLocation();
+  }
+
+  @override
+  void dispose() {
+    _fixedLatitudeController.dispose();
+    _fixedLongitudeController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadFixedLocation() async {
+    if (!kDebugMode) {
+      setState(() => _fixedLocationLoading = false);
+      return;
+    }
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {
+        _fixedLatitudeController.text =
+            preferences.getDouble('citizen_fixed_test_latitude')?.toString() ??
+            '';
+        _fixedLongitudeController.text =
+            preferences.getDouble('citizen_fixed_test_longitude')?.toString() ??
+            '';
+        _fixedLocationEnabled =
+            preferences.getBool('citizen_use_fixed_test_location') ?? false;
+        _fixedLocationLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _fixedLocationError = 'Could not load the test location: $error';
+        _fixedLocationLoading = false;
+      });
+    }
+  }
+
+  Future<void> _saveFixedLocation({bool? enabled}) async {
+    final latitude = double.tryParse(_fixedLatitudeController.text.trim());
+    final longitude = double.tryParse(_fixedLongitudeController.text.trim());
+    if (latitude == null ||
+        longitude == null ||
+        !latitude.isFinite ||
+        !longitude.isFinite ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180) {
+      setState(
+        () => _fixedLocationError =
+            'Enter a valid latitude (-90 to 90) and longitude (-180 to 180).',
+      );
+      return;
+    }
+
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final shouldEnable = enabled ?? _fixedLocationEnabled;
+      final latitudeSaved = await preferences.setDouble(
+        'citizen_fixed_test_latitude',
+        latitude,
+      );
+      final longitudeSaved = await preferences.setDouble(
+        'citizen_fixed_test_longitude',
+        longitude,
+      );
+      final enabledSaved = await preferences.setBool(
+        'citizen_use_fixed_test_location',
+        shouldEnable,
+      );
+      if (!latitudeSaved || !longitudeSaved || !enabledSaved) {
+        throw StateError('The test location could not be persisted.');
+      }
+      if (!mounted) return;
+      setState(() {
+        _fixedLocationEnabled = shouldEnable;
+        _fixedLocationError = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            shouldEnable
+                ? 'Test location saved and enabled.'
+                : 'Test location saved.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(
+        () => _fixedLocationError = 'Could not save test location: $error',
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2147,21 +2157,76 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
               style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
             ),
           ] else if (widget.title == 'Saved Locations') ...[
-            const Icon(
-              Icons.location_on_outlined,
-              size: 48,
-              color: Color(0xFF0F766E),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'No saved locations yet',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Saved reporting locations will appear here '
-              'when location saving is implemented.',
-            ),
+            if (!kDebugMode) ...[
+              const Icon(
+                Icons.location_on_outlined,
+                size: 48,
+                color: Color(0xFF0F766E),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Fixed test locations are available in debug builds only.',
+                textAlign: TextAlign.center,
+              ),
+            ] else if (_fixedLocationLoading) ...[
+              const Center(child: CircularProgressIndicator()),
+            ] else ...[
+              const Text(
+                'Fixed test location',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'For testing only: when enabled, new reports use these '
+                'coordinates instead of the device GPS.',
+                style: TextStyle(color: Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _fixedLatitudeController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                  signed: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Latitude',
+                  prefixIcon: Icon(Icons.north),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _fixedLongitudeController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                  signed: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Longitude',
+                  prefixIcon: Icon(Icons.east),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Use fixed location for reports'),
+                subtitle: const Text('Debug/testing builds only'),
+                value: _fixedLocationEnabled,
+                onChanged: (value) => _saveFixedLocation(enabled: value),
+              ),
+              if (_fixedLocationError != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  _fixedLocationError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: () => _saveFixedLocation(),
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('Save test location'),
+              ),
+            ],
           ] else if (widget.title == 'Help & Support') ...[
             const Text(
               'How can we help?',
@@ -2180,20 +2245,21 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
                 'Open Track Status to view available report updates.',
               ),
             ),
-          ] else if (widget.title == 'About DrainRank') ...[
-            const Icon(
-              Icons.water_drop_rounded,
-              size: 48,
-              color: Color(0xFF0F766E),
+          ] else if (widget.title == 'About Swachh Pravah') ...[
+            Image.asset(
+              'assets/logo.png',
+              width: 64,
+              height: 64,
+              fit: BoxFit.contain,
             ),
             const SizedBox(height: 12),
             const Text(
-              'DrainRank',
+              AppConstants.appName,
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             const Text(
-              'Cleaner Drains, Safer Cities',
+              'पहचान से समाधान तक।',
               style: TextStyle(color: Color(0xFF64748B)),
             ),
             const SizedBox(height: 16),

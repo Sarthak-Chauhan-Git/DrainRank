@@ -28,6 +28,7 @@ class _PendingWorkPhoto {
 
 class _TaskDetailsPageState extends State<TaskDetailsPage> {
   final TextEditingController _descriptionController = TextEditingController();
+  String? _inspectionOutcome;
   XFile? _image;
   Uint8List? _imageBytes;
   Position? _photoPosition;
@@ -172,6 +173,14 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
   Future<void> _submit(Map<String, dynamic> task) async {
     if (_busy) return;
+    final isInspectionTask = (task['title'] ?? '')
+        .toString()
+        .toLowerCase()
+        .startsWith('inspect ');
+    if (isInspectionTask && _inspectionOutcome == null) {
+      showAppMessage(context, 'Select the inspection result before saving.');
+      return;
+    }
     final taskDay = _parseTaskDate(task['dateKey']);
     final today = _todayOnly();
     if (taskDay == null || taskDay.isAfter(today)) {
@@ -310,6 +319,9 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
               'p_longitude': longitude,
               'p_accuracy_meters': accuracy,
               'p_address': address,
+              'p_inspection_outcome': isInspectionTask
+                  ? _inspectionOutcome
+                  : null,
             },
           )
           .timeout(const Duration(seconds: 45));
@@ -441,6 +453,10 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
             });
           }
           final status = (task['status'] ?? 'Pending').toString();
+          final isInspectionTask = (task['title'] ?? '')
+              .toString()
+              .toLowerCase()
+              .startsWith('inspect ');
           final start = (task['startTime'] ?? '').toString();
           final end = (task['endTime'] ?? '').toString();
           return ListView(
@@ -505,6 +521,18 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                   final saved = docs.isEmpty ? null : docs.first;
                   final savedData = saved;
                   final savedPath = savedData?['photoPath'];
+                  if (isInspectionTask && status == 'Completed') {
+                    final outcome = task['inspection_outcome'];
+                    final message = outcome == 'cleaning_required'
+                        ? 'Inspection submitted: cleaning is required. The municipal dashboard will move this area to the cleaning queue.'
+                        : outcome == 'no_cleaning_required'
+                        ? 'Inspection submitted: no cleaning is required. The area is being monitored.'
+                        : 'This inspection is marked complete, but its result is missing. Contact the administrator.';
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      child: Text(message),
+                    );
+                  }
                   final taskIsToday = isScheduledToday(task['dateKey']);
                   final taskIsOverdue = isOverdueTaskDate(task['dateKey']);
                   final canSubmitNew =
@@ -590,9 +618,9 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                               width: double.infinity,
                               decoration: BoxDecoration(
                                 border: Border.all(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.outlineVariant,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .outlineVariant,
                                 ),
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -859,6 +887,32 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const SizedBox(height: 16),
+                      if (isInspectionTask) ...[
+                        Text(
+                          'Inspection result',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          initialValue: _inspectionOutcome,
+                          decoration: const InputDecoration(
+                            hintText: 'Select inspection result',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'cleaning_required',
+                              child: Text('Cleaning is required'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'no_cleaning_required',
+                              child: Text('No cleaning required'),
+                            ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _inspectionOutcome = value),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       Text(
                         'Work Description',
                         style: Theme.of(context).textTheme.titleMedium,

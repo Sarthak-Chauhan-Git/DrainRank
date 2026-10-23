@@ -1,4 +1,7 @@
-# DrainRank Field App
+# Swachh Pravah Sarthi Field App
+
+The Android launcher label and icon use the Swachh Pravah Sarthi branding; the
+source icon is kept at `assets/field_app_icon.png`.
 
 The field app uses the shared Supabase project for authentication, crew
 profiles, assigned tasks, work evidence, credits, leave requests, and private
@@ -27,6 +30,16 @@ client `.env` file.
 Create a crew account from the field app's administrator screen. Crew members
 continue to sign in with their Municipal ID and password. The ID is mapped to a
 Supabase Auth email alias internally; no email address is needed at sign-in.
+After successful creation, the admin screen displays the Municipal ID and
+temporary password once, with copy buttons. Share them securely and ask the
+crew member to keep the temporary password secure. If account creation fails,
+confirm that `create-crew-account` is deployed to this same Supabase project
+and that the signed-in administrator has an active `admin` profile.
+
+Crew navigation is organized into **Tasks**, **Activity**, and **Profile**.
+The profile tab shows the member's municipal ID card and includes leave
+requests, account support, and sign-out. Task date ranges remain available
+inside the Tasks tab.
 
 ## Run and build
 
@@ -53,5 +66,10 @@ Match a dashboard worker's ID to the crew member's Municipal ID. Row-level
 security limits crew records and task/photo access to the signed-in, assigned
 member; administrator operations run through protected SQL functions and the
 Edge Function.
+
+Inspection tasks ask the assigned worker whether cleaning is required.
+Submitting that result completes the inspection task and moves the report area
+to the dashboard's cleaning queue when needed. Apply the latest Supabase
+migration before building this version of the app.
 
 Run `flutter analyze` and `flutter test` to validate the app.

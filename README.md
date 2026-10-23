@@ -70,7 +70,7 @@ DrainRank/
 │   │   │   ├── AuthGate.tsx              # Supabase staff authentication/authorization
 │   │   │   ├── dataProvider.ts           # Supabase load/save and citizen merge
 │   │   │   ├── supabase.ts               # Supabase browser client
-│   │   │   ├── cloudinary.ts             # Unsigned image upload helper
+│   │   │   ├── supabaseStorage.ts        # Private dashboard image upload/signing
 │   │   │   ├── emptyState.ts             # Empty initial state and credit policy
 │   │   │   ├── intelligence.ts           # Deterministic ranking/history analysis
 │   │   │   ├── MonitoringIntelligencePage.tsx
@@ -214,7 +214,7 @@ Web dashboard
   ├─ dashboard_state (one JSONB municipal state row)
   ├─ citizen_reports (RLS-protected report access)
   ├─ field_tasks (dashboard-to-crew assignment bridge)
-  ├─ Cloudinary (browser unsigned image upload; secure URL retained)
+  ├─ dashboard-evidence (private Supabase Storage bucket)
   └─ local Vite API → local Ollama/Qwen3 (sanitized advisory questions)
 
 Field Flutter app
@@ -279,7 +279,7 @@ evidence or perform operational actions.
 | Web UI | React 19, TypeScript 6, Vite 8 |
 | Web navigation/charts/maps | React Router 7, Recharts, Leaflet, React Leaflet |
 | Web backend/auth | Supabase JS/Auth/Postgres/RLS |
-| Web evidence images | Cloudinary unsigned upload API |
+| Web evidence images | Supabase Storage private bucket and signed URLs |
 | Local assistant | Vite middleware, Node HTTP types, Ollama, Qwen3 8B |
 | Mobile clients | Flutter/Dart |
 | Citizen persistence/auth | Supabase Auth/Postgres/Storage, SharedPreferences cache |
@@ -306,7 +306,7 @@ What is implemented now:
 - RLS-protected web state with optimistic concurrency;
 - dashboard navigation, maps, queues, work orders, evidence review, reports,
   crew/credit/log administration, and deterministic monitoring intelligence;
-- Cloudinary evidence upload path for web images;
+- private Supabase Storage evidence uploads across the web and mobile apps;
 - local Ollama assistant with validation and personal-data guardrails;
 - citizen email/password UI, Supabase report submission/tracking, local cache,
   location and urgency-place support;
@@ -331,7 +331,7 @@ Prioritize these before calling the system production-ready:
    dashboard `DrainStatus`/report statuses, field task states, evidence
    decisions, and outcome history with explicit transition rules.
 4. **Finish production security configuration.** Review Supabase RLS and
-   Storage policies, Cloudinary unsigned-upload restrictions, secret
+   Storage policies, secret
    management, rate limits, audit logging, and least-privilege deployment
    accounts.
 5. **Replace demo/prototype configuration.** Move remaining ward/drain
@@ -367,7 +367,6 @@ From `apps/web`:
 npm install
 Copy-Item .env.example .env.local
 # Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.
-# Set VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET for photos.
 npm run dev
 npm run build
 npm run lint
@@ -376,10 +375,8 @@ npm run lint
 Inspect the existing Supabase schema and policies before applying migrations.
 Promote the administrator's Auth-linked `profiles` row to role `admin`; do not
 create a separate dashboard membership table.
-The detailed setup and
-Cloudinary instructions are in [`apps/web/README.md`](apps/web/README.md).
-Never put a Supabase service-role key, Cloudinary API secret, or Ollama
-credentials in browser code.
+The detailed Supabase Storage setup is in [`apps/web/README.md`](apps/web/README.md).
+Never put a Supabase service-role key or Ollama credentials in browser code.
 
 For the local assistant, install/run Ollama on the same machine and make the
 configured model available. Optional environment variables are
@@ -443,8 +440,8 @@ Flutter application.
   the web, citizen, and field owners.
 - Preserve explicit error messages and permission checks; do not replace real
   integrations with silent mock fallbacks.
-- Do not commit `.env.local`, private keys, service-role keys, Cloudinary
-  secrets, generated dependencies, or build output.
+- Do not commit `.env.local`, private keys, service-role keys, generated
+  dependencies, or build output.
 
 ## Related documentation
 

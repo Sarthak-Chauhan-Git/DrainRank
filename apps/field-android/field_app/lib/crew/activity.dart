@@ -4,8 +4,13 @@ part of '../main.dart';
 /// "Done by you" means this member submitted at least one work update;
 /// it does NOT mean the administrator marked the shared task Completed.
 class CrewActivityPage extends StatefulWidget {
-  const CrewActivityPage({super.key, required this.currentUserUid});
+  const CrewActivityPage({
+    super.key,
+    required this.currentUserUid,
+    this.embedded = false,
+  });
   final String currentUserUid;
+  final bool embedded;
 
   @override
   State<CrewActivityPage> createState() => _CrewActivityPageState();
@@ -92,7 +97,9 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
     final todayOnly = DateTime(today.year, today.month, today.day);
     final earliest = _earliestDay(todayOnly);
     return Scaffold(
-      appBar: AppBar(title: const Text('Your Activity')),
+      appBar: widget.embedded
+          ? null
+          : AppBar(title: const Text('Your Activity')),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: fieldCreditsStream(),
         builder: (context, awardsSnapshot) {
@@ -175,9 +182,8 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                     !day.isAfter(todayOnly);
               }).toList();
               docs.sort((a, b) {
-                final byDay = _taskDay(
-                  b.data(),
-                )!.compareTo(_taskDay(a.data())!);
+                final byDay = _taskDay(b.data())!
+                    .compareTo(_taskDay(a.data())!);
                 if (byDay != 0) return byDay;
                 return _taskTime(b.data()).compareTo(_taskTime(a.data()));
               });
@@ -309,9 +315,9 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                                   : penalty < 0
                                   ? 'Penalty applied'
                                   : 'Pending';
-                              final statusTextStyle = Theme.of(
-                                context,
-                              ).textTheme.bodyMedium;
+                              final statusTextStyle = Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium;
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 10),
                                 clipBehavior: Clip.antiAlias,
@@ -357,9 +363,9 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                                               child: Text(
                                                 _taskTime(task),
                                                 textAlign: TextAlign.right,
-                                                style: Theme.of(
-                                                  context,
-                                                ).textTheme.bodySmall,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall,
                                               ),
                                             ),
                                           ],
@@ -545,9 +551,8 @@ class _ActivitySummaryCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               count?.toString() ?? '...',
-              style: Theme.of(
-                context,
-              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
+              style: Theme.of(context).textTheme.headlineMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
             ),
             Text(
               label,

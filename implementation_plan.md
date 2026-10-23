@@ -96,8 +96,8 @@ Use the same Supabase project URL and publishable key in all three apps.
 - Sign in with the administrator whose active profile has role `admin`.
 - Dashboard code uses existing `profiles`, `dashboard_state`, and
   `citizen_reports`, plus the new `field_tasks` table.
-- Dashboard evidence uploads remain on the existing Cloudinary configuration;
-  citizen and field photos use Supabase Storage.
+- Dashboard, citizen, and field photos use private Supabase Storage buckets
+  with role-checked policies and signed URLs.
 - Test: load/save dashboard state, view a citizen report, update its status,
   and assign a work order to a worker whose ID exactly matches a crew
   Municipal ID.
@@ -124,5 +124,5 @@ Use the same Supabase project URL and publishable key in all three apps.
   smoke tests remain. Until those pass, the three apps are not end-to-end
   ready.
 
-Never share Supabase passwords, access tokens, service-role keys, database
-passwords, or Cloudinary API secrets.
+Never share Supabase passwords, access tokens, service-role keys, or database
+passwords.
