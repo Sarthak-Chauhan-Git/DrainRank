@@ -1,0 +1,14 @@
+project_id = "drainrank"
+
+[api]
+enabled = true
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+
+[functions.create-crew-account]
+verify_jwt = true

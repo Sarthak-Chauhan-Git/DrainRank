@@ -1,7 +1,7 @@
 part of '../main.dart';
 
 List<Map<String, dynamic>> _sampleTasksForDate(String dateKey) {
-// Demonstration data only: these tasks are not written to Firestore.
+  // Demonstration data only: these tasks are not written to Supabase.
   return [
     {
       'title': 'Clean roadside drain',
@@ -34,13 +34,10 @@ List<Map<String, dynamic>> _sampleTasksForDate(String dateKey) {
 }
 
 class _DemoTaskPreview extends StatelessWidget {
-  const _DemoTaskPreview({
-    required this.tasks,
-    required this.firebaseError,
-  });
+  const _DemoTaskPreview({required this.tasks, required this.backendError});
 
   final List<Map<String, dynamic>> tasks;
-  final bool firebaseError;
+  final bool backendError;
 
   @override
   Widget build(BuildContext context) {
@@ -59,15 +56,17 @@ class _DemoTaskPreview extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(
-                firebaseError ? Icons.cloud_off_outlined : Icons.visibility_outlined,
+                backendError
+                    ? Icons.cloud_off_outlined
+                    : Icons.visibility_outlined,
                 color: colors.onTertiaryContainer,
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  firebaseError
-                      ? 'Showing sample tasks because Firebase tasks could not be loaded. These are demo examples, not real assignments. Check Firestore rules, the tasks collection, and the debug console.'
-                      : 'Sample preview only — these example tasks are not saved in Firebase. Real tasks assigned by the admin will appear here.',
+                  backendError
+                      ? 'Showing sample tasks because Supabase tasks could not be loaded. These examples are not real assignments. Check your connection and field-task access.'
+                      : 'Sample preview only — these examples are not saved in Supabase. Real assignments appear here when added by an administrator.',
                   style: TextStyle(color: colors.onTertiaryContainer),
                 ),
               ),
@@ -117,7 +116,10 @@ class _DateTab extends StatelessWidget {
               Text(
                 label,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 7),
               Icon(icon, size: 23),
@@ -152,9 +154,9 @@ class _TaskMessage extends StatelessWidget {
             Text(
               title,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 7),
             Text(message, textAlign: TextAlign.center),
@@ -200,8 +202,12 @@ class _DrainTaskCard extends StatelessWidget {
         dense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
         leading: const CircleAvatar(child: Icon(Icons.water_drop_outlined)),
-        title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w600)),
+        title: Text(
+          title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -209,19 +215,24 @@ class _DrainTaskCard extends StatelessWidget {
             if (isOverdue)
               Padding(
                 padding: const EdgeInsets.only(top: 3),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(
-                    'OVERDUE · Assigned ${_taskDateLabel(data['dateKey'])}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFFB91C1C),
-                      fontWeight: FontWeight.w700,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'OVERDUE · Assigned ${_taskDateLabel(data['dateKey'])}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFFB91C1C),
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  Text(
-                    'Warning: a daily credit deduction may apply until work is submitted.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFFB91C1C)),
-                  ),
-                ]),
+                    Text(
+                      'Warning: a daily credit deduction may apply until work is submitted.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFFB91C1C),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             if (taskId != null && currentUserUid != null) ...[
               const SizedBox(height: 4),
@@ -231,75 +242,132 @@ class _DrainTaskCard extends StatelessWidget {
               ),
               if (showCredits) ...[
                 const SizedBox(height: 8),
-                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(currentUserUid)
-                      .collection('creditAwards')
-                      .where('taskId', isEqualTo: taskId)
-                      .snapshots(),
+                StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: fieldCreditsStream(),
                   builder: (context, awardSnapshot) {
                     if (awardSnapshot.hasError) {
-                      return Text('Credits unavailable', style: Theme.of(context).textTheme.bodySmall);
+                      return Text(
+                        'Credits unavailable',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      );
                     }
                     var total = 0;
                     var penaltyTotal = 0;
-                    for (final entry in awardSnapshot.data?.docs ?? const []) {
-                      final value = entry.data()['credits'];
+                    for (final entry in (awardSnapshot.data ?? const []).where(
+                      (row) =>
+                          row['taskId'] == taskId &&
+                          row['crewUid'] == currentUserUid,
+                    )) {
+                      final value = entry['credits'];
                       if (value is! int) continue;
                       total += value;
-                      if (entry.data()['type'] == 'overduePenalty') penaltyTotal += value;
+                      if (entry['type'] == 'overduePenalty')
+                        penaltyTotal += value;
                     }
                     final rate = data['dailyOverdueDeduction'] is int
-                        ? data['dailyOverdueDeduction'] as int : 0;
+                        ? data['dailyOverdueDeduction'] as int
+                        : 0;
                     final day = _parseTaskDate(data['dateKey']);
                     final elapsedDays = day != null && isOverdue
-                        ? _todayOnly().difference(day).inDays : 0;
+                        ? _todayOnly().difference(day).inDays
+                        : 0;
                     final estimatedPenalty = rate * elapsedDays;
                     if (isOverdue && penaltyTotal < 0) {
-                      return Row(children: [
-                        Icon(Icons.trending_down, size: 18, color: const Color(0xFFB91C1C)),
-                        const SizedBox(width: 5),
-                        Text('$penaltyTotal credits', style: TextStyle(fontWeight: FontWeight.w700, color: const Color(0xFFB91C1C))),
-                      ]);
+                      return Row(
+                        children: [
+                          Icon(
+                            Icons.trending_down,
+                            size: 18,
+                            color: const Color(0xFFB91C1C),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            '$penaltyTotal credits',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFFB91C1C),
+                            ),
+                          ),
+                        ],
+                      );
                     }
                     if (isOverdue && estimatedPenalty > 0) {
-                      return Row(children: [
-                        Icon(Icons.trending_down, size: 18, color: const Color(0xFFB91C1C)),
-                        const SizedBox(width: 5),
-                        Text('−$estimatedPenalty credits (pending)', style: TextStyle(fontWeight: FontWeight.w700, color: const Color(0xFFB91C1C))),
-                      ]);
+                      return Row(
+                        children: [
+                          Icon(
+                            Icons.trending_down,
+                            size: 18,
+                            color: const Color(0xFFB91C1C),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            '−$estimatedPenalty credits (pending)',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFFB91C1C),
+                            ),
+                          ),
+                        ],
+                      );
                     }
                     if (total < 0) {
-                      return Row(children: [
-                        Icon(Icons.trending_down, size: 18, color: const Color(0xFFB91C1C)),
-                        const SizedBox(width: 5),
-                        Text('$total credits', style: TextStyle(fontWeight: FontWeight.w700, color: const Color(0xFFB91C1C))),
-                      ]);
+                      return Row(
+                        children: [
+                          Icon(
+                            Icons.trending_down,
+                            size: 18,
+                            color: const Color(0xFFB91C1C),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            '$total credits',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFFB91C1C),
+                            ),
+                          ),
+                        ],
+                      );
                     }
-                    return Row(children: [
-                      Icon(total > 0 ? Icons.workspace_premium_outlined : Icons.schedule_outlined,
-                          size: 18, color: total > 0 ? const Color(0xFFF59E0B) : Theme.of(context).colorScheme.onSurfaceVariant),
-                      const SizedBox(width: 5),
-                      Text(total > 0 ? '+$total credits' : '0 credits', style: const TextStyle(fontWeight: FontWeight.w700)),
-                    ]);
+                    return Row(
+                      children: [
+                        Icon(
+                          total > 0
+                              ? Icons.workspace_premium_outlined
+                              : Icons.schedule_outlined,
+                          size: 18,
+                          color: total > 0
+                              ? const Color(0xFFF59E0B)
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          total > 0 ? '+$total credits' : '0 credits',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    );
                   },
                 ),
               ],
-              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
-                    .collection('tasks')
-                    .doc(taskId)
-                    .collection('workUpdates')
-                    .where('submittedByUid', isEqualTo: currentUserUid)
-                    .limit(1)
-                    .snapshots(),
+              StreamBuilder<List<Map<String, dynamic>>>(
+                stream: fieldWorkUpdatesStream(),
                 builder: (context, snapshot) {
-                  final submitted = snapshot.hasData && snapshot.data!.docs.isNotEmpty;
+                  final submitted =
+                      snapshot.hasData &&
+                      snapshot.data!.any(
+                        (row) =>
+                            row['taskId'] == taskId &&
+                            row['submittedByUid'] == currentUserUid,
+                      );
                   return Text(
-                    submitted ? 'Your image upload: Submitted' : 'Your image upload: Pending',
+                    submitted
+                        ? 'Your image upload: Submitted'
+                        : 'Your image upload: Pending',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: submitted ? const Color(0xFF059669) : Theme.of(context).colorScheme.onSurfaceVariant,
+                      color: submitted
+                          ? const Color(0xFF059669)
+                          : Theme.of(context).colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w600,
                     ),
                   );

@@ -44,9 +44,11 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       }
 
       const { data, error: membershipError } = await client
-        .from("dashboard_admins")
-        .select("user_id")
-        .eq("user_id", session.user.id)
+        .from("profiles")
+        .select("id")
+        .eq("id", session.user.id)
+        .eq("role", "admin")
+        .eq("access_blocked", false)
         .maybeSingle();
 
       if (!active || check !== authCheck) return;
@@ -59,7 +61,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         setGate({
           status: "denied",
           message:
-            "This account is not authorized for the municipal dashboard. Ask an administrator to grant dashboard access.",
+            "This account is not authorized for the municipal dashboard. Sign in with an active admin profile.",
         });
       } else {
         setGate({

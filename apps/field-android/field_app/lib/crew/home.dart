@@ -17,9 +17,9 @@ class CrewHomePage extends StatefulWidget {
 }
 
 class _CrewHomePageState extends State<CrewHomePage> {
-// 0 = previous seven days; 1 = today; 2 = upcoming seven days.
+  // 0 = previous seven days; 1 = today; 2 = upcoming seven days.
   int _selectedTab = 1;
-  late Stream<QuerySnapshot<Map<String, dynamic>>> _tasksStream;
+  late Stream<List<FieldTaskRecord>> _tasksStream;
 
   @override
   void initState() {
@@ -28,25 +28,19 @@ class _CrewHomePageState extends State<CrewHomePage> {
   }
 
   void _openTaskStream() {
-    // Keep this query aligned with the /tasks Firestore security rule.
-    // A permission-denied response must be fixed in Firestore Rules.
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? widget.user.uid;
-    debugPrint('DRAINRANK task query: project=${Firebase.app().options.projectId}, uid=$uid');
-    _tasksStream = FirebaseFirestore.instance
-        .collection('tasks')
-        .where('assignedToUid', arrayContains: uid)
-        .snapshots();
+    _tasksStream = fieldTasksStream();
   }
 
   DateTime _dayOnly(DateTime date) => DateTime(date.year, date.month, date.day);
 
   String get _crewName {
-    final name = (widget.profile['fullName'] ??
-        widget.profile['name'] ??
-        widget.user.displayName ??
-        '')
-        .toString()
-        .trim();
+    final name =
+        (widget.profile['fullName'] ??
+                widget.profile['name'] ??
+                widget.user.displayName ??
+                '')
+            .toString()
+            .trim();
     return name.isNotEmpty
         ? name
         : (widget.user.email?.split('@').first ?? 'Crew Member');
@@ -61,16 +55,20 @@ class _CrewHomePageState extends State<CrewHomePage> {
     return List.generate(7, (i) => today.add(Duration(days: i + 1)));
   }
 
-// Handles both '08:00 AM' and '13:00' time strings for chronological sorting.
+  // Handles both '08:00 AM' and '13:00' time strings for chronological sorting.
   int _timeInMinutes(String? raw) {
     if (raw == null) return 9999;
-    final match = RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)?$', caseSensitive: false)
-        .firstMatch(raw.trim());
+    final match = RegExp(
+      r'^(\d{1,2}):(\d{2})\s*(AM|PM)?$',
+      caseSensitive: false,
+    ).firstMatch(raw.trim());
     if (match == null) return 9999;
     var hour = int.parse(match.group(1)!);
     final minute = int.parse(match.group(2)!);
     final period = match.group(3)?.toUpperCase();
-    if (minute > 59 || hour > (period == null ? 23 : 12) || hour == 0 && period != null) {
+    if (minute > 59 ||
+        hour > (period == null ? 23 : 12) ||
+        hour == 0 && period != null) {
       return 9999;
     }
     if (period != null) hour = (hour % 12) + (period == 'PM' ? 12 : 0);
@@ -95,7 +93,10 @@ class _CrewHomePageState extends State<CrewHomePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: Theme.of(sheetContext).textTheme.headlineSmall),
+              Text(
+                title,
+                style: Theme.of(sheetContext).textTheme.headlineSmall,
+              ),
               const SizedBox(height: 16),
               content,
             ],
@@ -150,9 +151,7 @@ class _CrewHomePageState extends State<CrewHomePage> {
     };
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('DRAINRANK'),
-      ),
+      appBar: AppBar(title: const Text('DRAINRANK')),
       drawer: Drawer(
         child: SafeArea(
           child: Column(
@@ -176,7 +175,8 @@ class _CrewHomePageState extends State<CrewHomePage> {
                   Navigator.of(context).pop();
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => CrewActivityPage(currentUserUid: widget.user.uid),
+                      builder: (_) =>
+                          CrewActivityPage(currentUserUid: widget.user.uid),
                     ),
                   );
                 },
@@ -201,7 +201,9 @@ class _CrewHomePageState extends State<CrewHomePage> {
                 title: const Text('Info'),
                 onTap: () => _showDetails(
                   'About the App',
-                  const Text('View drain-cleaning duties assigned to your municipal account. Tasks update automatically when assignments change.'),
+                  const Text(
+                    'View drain-cleaning duties assigned to your municipal account. Tasks update automatically when assignments change.',
+                  ),
                 ),
               ),
               ListTile(
@@ -209,7 +211,9 @@ class _CrewHomePageState extends State<CrewHomePage> {
                 title: const Text('Contact'),
                 onTap: () => _showDetails(
                   'Contact',
-                  const Text('For account support, assignment issues, or a password reset, contact your Municipal Board office.'),
+                  const Text(
+                    'For account support, assignment issues, or a password reset, contact your Municipal Board office.',
+                  ),
                 ),
               ),
               const Spacer(),
@@ -245,7 +249,7 @@ class _CrewHomePageState extends State<CrewHomePage> {
           ),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      body: StreamBuilder<List<FieldTaskRecord>>(
         stream: _tasksStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -264,36 +268,36 @@ class _CrewHomePageState extends State<CrewHomePage> {
                     const Text('Unable to load assigned tasks'),
                     const SizedBox(height: 8),
                     Text(
-                      snapshot.error is FirebaseException &&
-                          (snapshot.error as FirebaseException).code == 'permission-denied'
-                          ? 'Firestore rejected the assigned-tasks query. '
-                            'Publish the matching /tasks security rule. '
-                            'Project: ${Firebase.app().options.projectId}\n'
-                            'Signed-in UID: ${FirebaseAuth.instance.currentUser?.uid ?? widget.user.uid}\n'
-                            'Check that assignedToUid contains this UID as an array item.'
-                          : 'Check your internet connection and try again.',
+                      'Check your internet connection and confirm this crew account '
+                      'is assigned to the task in Supabase.',
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 16),
-                    OutlinedButton(onPressed: _refreshTasks, child: const Text('Retry')),
+                    OutlinedButton(
+                      onPressed: _refreshTasks,
+                      child: const Text('Retry'),
+                    ),
                   ],
                 ),
               ),
             );
           }
 
-          final allAssignedTasks = snapshot.data?.docs ?? [];
+          final allAssignedTasks = snapshot.data ?? [];
           final filtered = allAssignedTasks
               .where((doc) => visibleKeys.contains(doc.data()['dateKey']))
               .toList();
-          final byDate = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+          final byDate = <String, List<FieldTaskRecord>>{};
           for (final doc in filtered) {
             final dateKey = doc.data()['dateKey'] as String;
             byDate.putIfAbsent(dateKey, () => []).add(doc);
           }
           for (final tasks in byDate.values) {
-            tasks.sort((a, b) => _timeInMinutes(a.data()['startTime']?.toString())
-                .compareTo(_timeInMinutes(b.data()['startTime']?.toString())));
+            tasks.sort(
+              (a, b) => _timeInMinutes(
+                a.data()['startTime']?.toString(),
+              ).compareTo(_timeInMinutes(b.data()['startTime']?.toString())),
+            );
           }
 
           // The Today tab also includes earlier assignments for which this
@@ -303,28 +307,37 @@ class _CrewHomePageState extends State<CrewHomePage> {
                   final day = _parseTaskDate(doc.data()['dateKey']);
                   return day != null && day.isBefore(_todayOnly());
                 }).toList()
-              : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+              : <FieldTaskRecord>[];
           overdueTasks.sort((a, b) {
             final dayA = _parseTaskDate(a.data()['dateKey'])!;
             final dayB = _parseTaskDate(b.data()['dateKey'])!;
             final byDay = dayA.compareTo(dayB); // oldest overdue task first
             if (byDay != 0) return byDay;
-            return _timeInMinutes(a.data()['startTime']?.toString())
-                .compareTo(_timeInMinutes(b.data()['startTime']?.toString()));
+            return _timeInMinutes(
+              a.data()['startTime']?.toString(),
+            ).compareTo(_timeInMinutes(b.data()['startTime']?.toString()));
           });
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
             children: [
-              Text('Hello, $_crewName!',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Hello, $_crewName!',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 8),
               Center(child: CrewCredits(uid: widget.user.uid, compact: true)),
               const SizedBox(height: 12),
-              Text(heading,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                heading,
+                textAlign: TextAlign.center,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 5),
               Text(
                 _selectedTab == 1
@@ -342,9 +355,15 @@ class _CrewHomePageState extends State<CrewHomePage> {
                       children: [
                         const Icon(Icons.event_busy_outlined, size: 42),
                         const SizedBox(height: 12),
-                        Text('No tasks assigned for $heading', textAlign: TextAlign.center),
+                        Text(
+                          'No tasks assigned for $heading',
+                          textAlign: TextAlign.center,
+                        ),
                         const SizedBox(height: 8),
-                        const Text('New assignments will appear here automatically.', textAlign: TextAlign.center),
+                        const Text(
+                          'New assignments will appear here automatically.',
+                          textAlign: TextAlign.center,
+                        ),
                       ],
                     ),
                   ),
@@ -353,7 +372,10 @@ class _CrewHomePageState extends State<CrewHomePage> {
                 const Card(
                   child: Padding(
                     padding: EdgeInsets.all(20),
-                    child: Text('No tasks assigned for today.', textAlign: TextAlign.center),
+                    child: Text(
+                      'No tasks assigned for today.',
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
               for (final date in visibleDays)
@@ -362,7 +384,9 @@ class _CrewHomePageState extends State<CrewHomePage> {
                     padding: const EdgeInsets.fromLTRB(4, 12, 4, 10),
                     child: Text(
                       _prettyDate(date),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                   for (var i = 0; i < byDate[_dateKey(date)]!.length; i++)
@@ -385,25 +409,31 @@ class _CrewHomePageState extends State<CrewHomePage> {
               if (_selectedTab == 1) ...[
                 const Padding(
                   padding: EdgeInsets.fromLTRB(4, 18, 4, 10),
-                  child: Text('Overdue Tasks',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    'Overdue Tasks',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                 ),
                 if (overdueTasks.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(bottom: 12),
-                    child: Text('No overdue tasks.', textAlign: TextAlign.center),
+                    child: Text(
+                      'No overdue tasks.',
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 for (final overdueTask in overdueTasks)
-                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: overdueTask.reference
-                        .collection('workUpdates')
-                        .where('submittedByUid', isEqualTo: widget.user.uid)
-                        .limit(1)
-                        .snapshots(),
+                  StreamBuilder<List<Map<String, dynamic>>>(
+                    stream: fieldWorkUpdatesStream(),
                     builder: (context, workSnapshot) {
                       // Hide overdue work once this member has submitted it.
-                      if (!workSnapshot.hasData || workSnapshot.hasError ||
-                          workSnapshot.data!.docs.isNotEmpty) {
+                      if (!workSnapshot.hasData ||
+                          workSnapshot.hasError ||
+                          workSnapshot.data!.any(
+                            (row) =>
+                                row['taskId'] == overdueTask.id &&
+                                row['submittedByUid'] == widget.user.uid,
+                          )) {
                         return const SizedBox.shrink();
                       }
                       return _DrainTaskCard(

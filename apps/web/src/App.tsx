@@ -123,6 +123,7 @@ export interface ReportRecord {
   priority: number;
   reasons: string[];
   status: "Open" | "Duplicate" | "Resolved";
+  backendStatus?: string;
 }
 
 export interface ActivityEntry {
@@ -2014,6 +2015,51 @@ function MapPage({
   const [priorityFilter, setPriorityFilter] = useState("All");
   const [wardFilter, setWardFilter] = useState("All");
   const [showSections, setShowSections] = useState(true);
+  if (drains.length === 0) {
+    return (
+      <div className="map-workspace">
+        <div className="map-toolbar panel">
+          <div>
+            <div className="eyebrow">Spatial operations</div>
+            <h2>Drain Map</h2>
+            <span className="panel-note">
+              Delhi drainage network and section-level issue records
+            </span>
+          </div>
+        </div>
+        <div className="map-workspace-grid">
+          <div className="panel map-panel">
+            <div className="map-container">
+              <MapContainer
+                center={[28.643, 77.43]}
+                zoom={13}
+                scrollWheelZoom={false}
+                className="leaflet-map"
+              >
+                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                <KmlOverlay />
+              </MapContainer>
+            </div>
+          </div>
+          <div className="panel map-detail-panel">
+            <div className="panel-header">
+              <h2>Section details</h2>
+            </div>
+            <div className="detail-card empty-state">
+              <MapPinned size={30} />
+              <h3>No drainage sections yet</h3>
+              <p>
+                The map is ready, but no section records are available to
+                display. Add drainage sections to the dashboard to see them
+                here.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const filteredDrains = drains.filter((drain) => {
     const matchesSearch = `${drain.id} ${drain.location}`
       .toLowerCase()
