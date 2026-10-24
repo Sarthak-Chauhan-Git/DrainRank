@@ -75,4 +75,38 @@ void main() {
     expect(find.text('Password'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('field debug previews require the shared demo PIN', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 800);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var debugModeEnabled = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CrewDebugToolPage(
+          onDebugModeChanged: (enabled) => debugModeEnabled = enabled,
+        ),
+      ),
+    );
+
+    expect(find.text('Local demo previews'), findsNothing);
+    await tester.enterText(find.byType(TextField), '00000000');
+    await tester.tap(find.text('Unlock local previews'));
+    await tester.pumpAndSettle();
+    expect(find.text('Incorrect demo PIN.'), findsOneWidget);
+    expect(debugModeEnabled, isFalse);
+
+    await tester.enterText(find.byType(TextField), '12345678');
+    await tester.tap(find.text('Unlock local previews'));
+    await tester.pumpAndSettle();
+    expect(find.text('Local demo previews'), findsOneWidget);
+    expect(find.text('Direct cleaning report preview'), findsOneWidget);
+    expect(find.textContaining('Preview-only controls.'), findsOneWidget);
+    expect(debugModeEnabled, isTrue);
+    expect(tester.takeException(), isNull);
+  });
 }

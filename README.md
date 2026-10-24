@@ -292,14 +292,12 @@ evidence or perform operational actions.
 
 **Stage: Pravah 1.0 local prototype / Supabase integration pending verification.**
 
-All three clients have local test paths that do not require Supabase: open the
-web dashboard at `/debug`, or build either Flutter app with
-`--dart-define=LOCAL_DEBUG_MODE=true`. These isolated test workspaces keep
-sample data in memory and do not write to Supabase. The web dashboard's
-normal routes and the mobile apps' normal builds continue to use the configured
-Supabase project. The connected Android device was used to verify the field
-app's startup fix; the end-to-end production database workflow still requires
-the outstanding SQL migrations and live-account verification.
+The web dashboard has a local test path at `/debug`. The field app keeps its
+normal Supabase-backed workflow and provides PIN-protected preview controls in
+Profile; those previews do not modify live data. The connected Android device
+was used to verify the field app's startup fix; the end-to-end production
+database workflow still requires the outstanding SQL migrations and
+live-account verification.
 
 What is implemented now:
 
@@ -316,8 +314,7 @@ What is implemented now:
 - shared report/task backend migration and protected crew-provisioning
   function (deployed, but not yet smoke-tested end to end);
 - a web CI build and citizen responsive widget tests.
-- password-gated local-only workflow testing for citizen reports, field
-  cleaning reports/credits, and the web administration debug panel;
+- password-gated web debug workflow and field-app preview controls;
 - a pre-Flutter startup fix pinning `shared_preferences_android` to a
   platform-channel release compatible with the project runtime.
 
@@ -386,9 +383,10 @@ root.
 
 ### Run all three local test workspaces
 
-These test workspaces use the shared demo PIN `12345678`, keep test state in
-memory, and do not connect to or modify Supabase. The PIN is a convenience gate
-for local testing, not security.
+The web debug workspace uses the demo PIN `12345678`, keeps sample state in
+memory, and does not connect to or modify Supabase. Field-app debug previews
+use the same PIN but keep the normal Supabase app connected; previews do not
+change live data. The PIN is a convenience gate for testing, not security.
 
 For the web dashboard, install and start Vite:
 
@@ -401,30 +399,20 @@ npm run dev
 Open the local Vite URL with `/debug` appended (normally
 `http://localhost:5173/debug`). This route works without `.env.local`.
 
-Build and install the citizen test app on the connected Android device:
+Run the citizen app using its normal setup documented in its README.
+
+Run/build the Supabase-connected field app using the setup below. Its profile
+page has a password-gated preview mode; do not pass `LOCAL_DEBUG_MODE`.
 
 ```powershell
-Set-Location ..\citizen-android\drainrank_citizen
+Set-Location ..\field-android\field_app
 flutter pub get
 flutter test
-flutter build apk --debug --dart-define=LOCAL_DEBUG_MODE=true
+flutter build apk --debug `
+  --dart-define=SUPABASE_URL=https://your-project.supabase.co `
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 flutter install
 ```
-
-Build and install the field-team test app:
-
-```powershell
-Set-Location ..\..\field-android\field_app
-flutter pub get
-flutter test
-flutter build apk --debug --dart-define=LOCAL_DEBUG_MODE=true
-flutter install
-```
-
-To test the ordinary Supabase-integrated builds instead, omit
-`LOCAL_DEBUG_MODE=true` and provide the Supabase project URL and **publishable**
-key with `--dart-define` as shown below. Never put a service-role key into a
-client build.
 
 ### Web dashboard
 

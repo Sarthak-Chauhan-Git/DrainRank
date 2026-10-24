@@ -58,27 +58,11 @@ cache so previously loaded records remain visible if a refresh fails; any
 refresh failure is shown in the tracking screen.
 
 The profile menu's **Debug Tool** is protected by the temporary demo PIN
-`12345678`. Its sample reports, status changes, and location preview are
-in-memory/local preview data only. It never reads or deletes Supabase reports
-or photos, and preview coordinates never affect the GPS captured for a real
-report. The PIN is embedded in the app and is not a production security
-boundary.
-
-To run a fully isolated app workflow without Supabase, build the local test
-variant:
-
-```powershell
-flutter pub get
-flutter test
-flutter run --dart-define=LOCAL_DEBUG_MODE=true
-```
-
-This opens a PIN-protected sample reporting/tracking app. Reports and simulated
-statuses are kept in memory and cleared when the app closes. No account,
-network, GPS, camera, or storage access is used by this mode. For an APK,
-replace `flutter run` with
-`flutter build apk --debug --dart-define=LOCAL_DEBUG_MODE=true`, then install
-with `flutter install`.
+`12345678`. It can set a fixed report location, show local-only simulated
+workflow statuses, and delete the signed-in account's unassigned test reports
+and photos. Assigned reports are not deleted. The PIN is embedded in the app
+and is not a production security boundary; replace/remove it before a public
+release.
 
 Citizens may withdraw their own reports while they are in Complaint Received
 or Under Verification and have no field work assigned. Withdrawal retains the
@@ -86,6 +70,5 @@ report record with a `withdrawn` status for municipal audit; it does not delete
 the report.
 
 Apply `backend/supabase/migrations/202610240001_citizen_debug_and_withdrawal.sql`
-after the earlier migrations to enable owner-checked report withdrawal and
-owner-only photo deletion. Local debug testing does not require this or any
-other migration.
+after the earlier migrations to enable owner-checked report withdrawal,
+debug-only deletion RPCs, and owner-only photo deletion.

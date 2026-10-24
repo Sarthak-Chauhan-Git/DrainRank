@@ -3,9 +3,9 @@
 The Flutter application and its Supabase build/deployment instructions are in
 [`field_app`](./field_app/README.md).
 
-Install dependencies with `flutter pub get` inside `field_app`. To run the
-isolated in-memory field workflow without connecting to Supabase:
+Install dependencies with `flutter pub get` inside `field_app`. The
+Supabase-connected field app provides PIN-protected, preview-only debug
+controls from Profile; the preview controls never modify live records.
 
-```powershell
-flutter run --dart-define=LOCAL_DEBUG_MODE=true
-```
+See [`field_app/README.md`](./field_app/README.md) for build and migration
+instructions.

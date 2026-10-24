@@ -1,7 +1,9 @@
 part of '../main.dart';
 
 class CrewDebugToolPage extends StatefulWidget {
-  const CrewDebugToolPage({super.key});
+  const CrewDebugToolPage({super.key, this.onDebugModeChanged});
+
+  final ValueChanged<bool>? onDebugModeChanged;
 
   @override
   State<CrewDebugToolPage> createState() => _CrewDebugToolPageState();
@@ -36,6 +38,7 @@ class _CrewDebugToolPageState extends State<CrewDebugToolPage> {
       _unlocked = true;
       _error = null;
     });
+    widget.onDebugModeChanged?.call(true);
   }
 
   Widget _previewCard(String title, Widget child) => Card(

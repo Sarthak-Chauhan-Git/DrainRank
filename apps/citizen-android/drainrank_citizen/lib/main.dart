@@ -14,23 +14,17 @@ import 'core/constants.dart';
 import 'models/citizen_report.dart';
 import 'services/drainrank_engine.dart';
 import 'services/high_urgency_places_service.dart';
-import 'local_debug_demo.dart';
 
 const _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
 const _supabasePublishableKey = String.fromEnvironment(
   'SUPABASE_PUBLISHABLE_KEY',
   defaultValue: String.fromEnvironment('SUPABASE_ANON_KEY'),
 );
-const _localDebugMode = bool.fromEnvironment('LOCAL_DEBUG_MODE');
 const _debugToolPin = '12345678';
 const _debugStatusOverridesKey = 'citizen_debug_status_overrides';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (_localDebugMode) {
-    runApp(const LocalCitizenDebugApp());
-    return;
-  }
   if (_supabaseUrl.isEmpty || _supabasePublishableKey.isEmpty) {
     runApp(const _BackendSetupRequiredApp());
     return;
@@ -634,10 +628,30 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       final imageFile = File(photo.path);
       final quality = await DrainRankEngine.analyzeAndHashPhoto(imageFile);
 
-      final pos = await DrainRankEngine.acquireGeotagPosition();
-      final lat = pos.latitude;
-      final lng = pos.longitude;
-      final acc = pos.accuracy;
+      double lat;
+      double lng;
+      double acc;
+      final preferences = await SharedPreferences.getInstance();
+      final useFixedLocation =
+          preferences.getBool('citizen_debug_tool_unlocked') == true &&
+          preferences.getBool('citizen_use_fixed_test_location') == true;
+      final fixedLatitude = preferences.getDouble(
+        'citizen_fixed_test_latitude',
+      );
+      final fixedLongitude = preferences.getDouble(
+        'citizen_fixed_test_longitude',
+      );
+
+      if (useFixedLocation && fixedLatitude != null && fixedLongitude != null) {
+        lat = fixedLatitude;
+        lng = fixedLongitude;
+        acc = 5;
+      } else {
+        final pos = await DrainRankEngine.acquireGeotagPosition();
+        lat = pos.latitude;
+        lng = pos.longitude;
+        acc = pos.accuracy;
+      }
 
       final matched = DrainRankEngine.findNearestDrain(lat, lng);
 
@@ -2156,77 +2170,123 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
       setState(() => _debugPinError = 'Incorrect demo PIN.');
       return;
     }
-    setState(() {
-      _debugUnlocked = true;
-      _debugPinError = null;
-    });
-    await _loadDebugReports();
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setBool('citizen_debug_tool_unlocked', true);
+      if (!mounted) return;
+      setState(() {
+        _debugUnlocked = true;
+        _debugPinError = null;
+      });
+      await _loadFixedLocation();
+      await _loadDebugReports();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _debugPinError = 'Could not unlock debug tools: $error');
+    }
   }
 
   Future<void> _loadDebugReports() async {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    if (user == null) {
+      setState(() {
+        _debugReports = [];
+        _debugReportsError = 'Sign in to manage this account’s test reports.';
+        _debugReportsLoading = false;
+      });
+      return;
+    }
     setState(() {
       _debugReportsLoading = true;
       _debugReportsError = null;
     });
-    const reports = [
-      {
-        'report_id': 'LOCAL-REP-001',
-        'status': 'Complaint Received',
-        'issue_category': 'blocked_drain',
-      },
-      {
-        'report_id': 'LOCAL-REP-002',
-        'status': 'Under Verification',
-        'issue_category': 'waterlogging',
-      },
-    ];
-    if (!mounted) return;
-    setState(() {
-      _debugReports = reports.map((report) => {...report}).toList();
-      _debugReportsLoading = false;
-      _selectedDebugReportId = _debugReports.first['report_id'] as String;
-    });
+    try {
+      final rows = await client
+          .from('citizen_reports')
+          .select('report_id,status,issue_category')
+          .eq('reporter_id', user.id)
+          .order('created_at', ascending: false);
+      if (!mounted) return;
+      final reports = rows
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+      setState(() {
+        _debugReports = reports;
+        _debugReportsLoading = false;
+        if (!_debugReports.any(
+          (row) => row['report_id'] == _selectedDebugReportId,
+        )) {
+          _selectedDebugReportId = reports.isEmpty
+              ? null
+              : reports.first['report_id'] as String;
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _debugReportsError = 'Could not load your reports: $error';
+        _debugReportsLoading = false;
+      });
+    }
   }
 
   Future<void> _saveSimulatedStatus() async {
     final reportId = _selectedDebugReportId;
-    if (reportId == null) return;
-    setState(() {
-      for (final report in _debugReports) {
-        if (report['report_id'] == reportId) {
-          report['status'] = _simulatedStatus.title;
-        }
-      }
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Sample status changed in this screen only.'),
-      ),
-    );
+    final user = Supabase.instance.client.auth.currentUser;
+    if (reportId == null || user == null) return;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final key = '${_debugStatusOverridesKey}_${user.id}';
+      final overrides = <String, dynamic>{
+        ...?jsonDecode(preferences.getString(key) ?? '{}')
+            as Map<String, dynamic>?,
+        reportId: _simulatedStatus.name,
+      };
+      await preferences.setString(key, jsonEncode(overrides));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Demo status saved on this phone only.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save demo status: $error')),
+      );
+    }
   }
 
   Future<void> _clearSimulatedStatuses() async {
-    setState(() {
-      for (var index = 0; index < _debugReports.length; index++) {
-        _debugReports[index]['status'] = index == 0
-            ? 'Complaint Received'
-            : 'Under Verification';
-      }
-      _simulatedStatus = ReportWorkflowStatus.complaintReceived;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Local sample statuses were reset.')),
-    );
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.remove('${_debugStatusOverridesKey}_${user.id}');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Demo status overrides cleared.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not clear demo statuses: $error')),
+      );
+    }
   }
 
   Future<void> _deleteDebugReports({List<String>? reportIds}) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Clear local sample reports?'),
-        content: const Text(
-          'This clears sample report previews from this screen only. '
-          'Supabase reports and photos are never changed.',
+        title: Text(
+          reportIds == null
+              ? 'Reset this account’s test data?'
+              : 'Delete report?',
+        ),
+        content: Text(
+          reportIds == null
+              ? 'This removes your own reports only when work has not been assigned. Your account and assigned reports will be kept.'
+              : 'This removes this report only if it belongs to your account and has not been assigned.',
         ),
         actions: [
           TextButton(
@@ -2234,30 +2294,82 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
             child: const Text('Cancel'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB91C1C),
+            ),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Clear local samples'),
+            child: Text(
+              reportIds == null ? 'Reset test data' : 'Delete report',
+            ),
           ),
         ],
       ),
     );
     if (confirmed != true) return;
-    if (!mounted) return;
 
-    final selectedIds = reportIds?.toSet();
-    setState(() {
-      _debugReports.removeWhere(
-        (report) =>
-            selectedIds == null ||
-            selectedIds.contains(report['report_id'] as String),
+    setState(() => _debugActionInProgress = true);
+    try {
+      final client = Supabase.instance.client;
+      final response = await client.rpc(
+        'debug_delete_citizen_reports',
+        params: {'p_report_ids': reportIds},
       );
-      _selectedDebugReportId = _debugReports.isEmpty
-          ? null
-          : _debugReports.first['report_id'] as String;
-      _debugActionInProgress = false;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Local sample reports were cleared.')),
-    );
+      final result = Map<String, dynamic>.from(response as Map);
+      final deletedIds = List<String>.from(
+        result['deleted_report_ids'] as List? ?? const [],
+      );
+      final imagePaths = List<String>.from(
+        result['image_paths'] as List? ?? const [],
+      );
+      var storageError = '';
+      if (imagePaths.isNotEmpty) {
+        try {
+          await client.storage.from('citizen-photos').remove(imagePaths);
+        } catch (error) {
+          storageError = ' Report images could not all be removed: $error';
+        }
+      }
+      final user = client.auth.currentUser;
+      if (user != null) {
+        final preferences = await SharedPreferences.getInstance();
+        final cached = await DrainRankEngine.getSavedReports(userId: user.id);
+        await DrainRankEngine.cacheReports(
+          cached
+              .where((report) => !deletedIds.contains(report.reportId))
+              .toList(),
+          userId: user.id,
+        );
+        final statusKey = '${_debugStatusOverridesKey}_${user.id}';
+        final statusOverrides = <String, dynamic>{
+          ...?jsonDecode(preferences.getString(statusKey) ?? '{}')
+              as Map<String, dynamic>?,
+        }..removeWhere((id, _) => deletedIds.contains(id));
+        await preferences.setString(statusKey, jsonEncode(statusOverrides));
+      }
+      await _loadDebugReports();
+      if (!mounted) return;
+      final skipped = result['skipped_assigned_count'] as int? ?? 0;
+      final message = reportIds == null
+          ? 'Removed ${deletedIds.length} unassigned report(s).'
+          : deletedIds.isEmpty
+          ? 'No report was deleted; it may already be assigned.'
+          : 'Report deleted.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$message${skipped > 0 ? ' $skipped assigned report(s) were kept.' : ''}$storageError',
+          ),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not reset test data: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _debugActionInProgress = false);
+    }
   }
 
   Future<void> _resetDebugLocation() async {
@@ -2302,8 +2414,7 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Enter the demo PIN to view local sample reports and previews. '
-                'Debug tools never change live reports or the GPS used for submissions.',
+                'Enter the demo PIN to continue. Debug controls can change this account’s test reports and location.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF64748B)),
               ),
@@ -2354,12 +2465,12 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Sample location preview',
+                  'Fixed report location',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Preview-only coordinates. Live reports always use the device GPS.',
+                  'While enabled, new reports use these coordinates instead of device GPS.',
                   style: TextStyle(color: Color(0xFF64748B)),
                 ),
                 const SizedBox(height: 12),
@@ -2389,8 +2500,8 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
                 const SizedBox(height: 8),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Preview fixed location'),
-                  subtitle: const Text('Does not affect report submissions.'),
+                  title: const Text('Use fixed location'),
+                  subtitle: const Text('Affects new reports on this account.'),
                   value: _fixedLocationEnabled,
                   onChanged: (value) => _saveFixedLocation(enabled: value),
                 ),
@@ -2453,7 +2564,6 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
                   const Text('No reports are available for this account.')
                 else ...[
                   DropdownButtonFormField<String>(
-                    isExpanded: true,
                     initialValue: _selectedDebugReportId,
                     decoration: const InputDecoration(labelText: 'Report'),
                     items: _debugReports.map((row) {
@@ -2464,7 +2574,6 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
                         child: Text(
                           '$id${issue.isEmpty ? '' : ' • $issue'}',
                           overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
                         ),
                       );
                     }).toList(),
@@ -2473,7 +2582,6 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
                   ),
                   const SizedBox(height: 10),
                   DropdownButtonFormField<ReportWorkflowStatus>(
-                    isExpanded: true,
                     initialValue: _simulatedStatus,
                     decoration: const InputDecoration(
                       labelText: 'Preview status',
@@ -2485,11 +2593,7 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
                         .map(
                           (status) => DropdownMenuItem(
                             value: status,
-                            child: Text(
-                              status.title,
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
+                            child: Text(status.title),
                           ),
                         )
                         .toList(),
@@ -2532,8 +2636,7 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Sample reports exist only in this screen. Clearing them never '
-                  'deletes Supabase reports or photos.',
+                  'Only reports owned by this signed-in account can be removed. Assigned reports are always kept.',
                   style: TextStyle(color: Color(0xFF64748B)),
                 ),
                 const SizedBox(height: 8),
@@ -2653,8 +2756,8 @@ class _DrainRankUtilityPageState extends State<DrainRankUtilityPage> {
         SnackBar(
           content: Text(
             shouldEnable
-                ? 'Local preview location saved.'
-                : 'Local preview location saved.',
+                ? 'Test location saved and enabled.'
+                : 'Test location saved.',
           ),
         ),
       );

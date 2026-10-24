@@ -19,6 +19,7 @@ class CrewHomePage extends StatefulWidget {
 class _CrewHomePageState extends State<CrewHomePage> {
   int _selectedSection = 0;
   int _selectedRange = 1;
+  bool _debugModeEnabled = false;
   late Stream<List<FieldTaskRecord>> _tasksStream;
   static const _avatarColors = [
     Color(0xFF0F766E),
@@ -594,16 +595,32 @@ class _CrewHomePageState extends State<CrewHomePage> {
               ),
             ),
             const Divider(height: 1, indent: 16, endIndent: 16),
-            ListTile(
-              leading: const Icon(Icons.bug_report_outlined),
-              title: const Text('Debug Mode'),
-              subtitle: const Text('Open local demo previews'),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const CrewDebugToolPage(),
-                ),
+            SwitchListTile(
+              secondary: const Icon(Icons.bug_report_outlined),
+              title: const Text('Enable debug mode'),
+              subtitle: Text(
+                _debugModeEnabled
+                    ? 'Preview controls enabled; live app functions are unchanged.'
+                    : 'Unlock preview controls with the demo PIN.',
               ),
+              value: _debugModeEnabled,
+              onChanged: (enabled) {
+                if (!enabled) {
+                  setState(() => _debugModeEnabled = false);
+                  return;
+                }
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => CrewDebugToolPage(
+                      onDebugModeChanged: (value) {
+                        if (mounted) {
+                          setState(() => _debugModeEnabled = value);
+                        }
+                      },
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         ),

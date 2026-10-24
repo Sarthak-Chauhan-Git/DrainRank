@@ -104,7 +104,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Demo and testing tools'), findsOneWidget);
-    expect(find.text('Sample location preview'), findsNothing);
+    expect(find.text('Fixed report location'), findsNothing);
 
     await tester.enterText(find.byType(TextField), '00000000');
     await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -115,7 +115,7 @@ void main() {
     await tester.enterText(find.byType(TextField), '12345678');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
-    expect(find.text('Sample location preview'), findsOneWidget);
+    expect(find.text('Fixed report location'), findsOneWidget);
     expect(find.text('Simulate report status'), findsOneWidget);
     expect(find.text('Your test reports'), findsOneWidget);
     expect(tester.takeException(), isNull);

@@ -10,8 +10,8 @@ This directory contains the three DrainRank clients:
   Pravah Saarthi crew app.
 
 For isolated mobile testing, run `flutter pub get` in the respective Flutter
-app folder, then `flutter run --dart-define=LOCAL_DEBUG_MODE=true`. For local
-web testing, run `npm ci` in `web` and open `/debug` on the Vite dev server.
-These test modes require the shared PIN `12345678`, use in-memory sample data,
-and do not access Supabase. See the root [README](../README.md) for complete
-clone, install, build, and deployment instructions.
+app folder. The field app's PIN-protected debug previews are available from
+Profile and do not affect live Supabase data. For web testing, run `npm ci` in
+`web` and open `/debug` on the Vite dev server. See the root
+[README](../README.md) for complete clone, install, build, and deployment
+instructions.
