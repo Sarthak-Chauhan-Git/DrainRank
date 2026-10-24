@@ -15,8 +15,10 @@ class _CrewDebugToolPageState extends State<CrewDebugToolPage> {
   bool _showActivity = true;
   bool _showLeave = true;
   bool _showLocation = true;
+  bool _showDirectReport = true;
   String _taskStatus = 'In progress';
   String _leaveStatus = 'Pending approval';
+  String _directReportStatus = 'Awaiting verification';
   int _activityMonths = 1;
 
   @override
@@ -26,7 +28,7 @@ class _CrewDebugToolPageState extends State<CrewDebugToolPage> {
   }
 
   void _unlock() {
-    if (_pinController.text != '12345678') {
+    if (_pinController.text != _debugToolPin) {
       setState(() => _error = 'Incorrect demo PIN.');
       return;
     }
@@ -135,6 +137,55 @@ class _CrewDebugToolPageState extends State<CrewDebugToolPage> {
                   ),
                 ),
               SwitchListTile(
+                title: const Text('Direct cleaning report preview'),
+                subtitle: const Text(
+                  'Simulate queue review and sample credits locally.',
+                ),
+                value: _showDirectReport,
+                onChanged: (value) => setState(() => _showDirectReport = value),
+              ),
+              if (_showDirectReport)
+                _previewCard(
+                  'DCR-DEMO-02 · Blocked drain · Ward 1',
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Sent directly to the cleaning queue without inspection.',
+                      ),
+                      DropdownButton<String>(
+                        value: _directReportStatus,
+                        isExpanded: true,
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'Awaiting verification',
+                            child: Text('Awaiting verification'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Verified',
+                            child: Text('Verified'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Rejected',
+                            child: Text('Rejected'),
+                          ),
+                        ],
+                        onChanged: (value) => setState(
+                          () => _directReportStatus =
+                              value ?? _directReportStatus,
+                        ),
+                      ),
+                      Text(
+                        _directReportStatus == 'Verified'
+                            ? 'Sample credits awarded: 120'
+                            : _directReportStatus == 'Rejected'
+                            ? 'No credits awarded.'
+                            : 'Credits are held until verification.',
+                      ),
+                    ],
+                  ),
+                ),
+              SwitchListTile(
                 title: const Text('Sample activity and credits'),
                 value: _showActivity,
                 onChanged: (value) => setState(() => _showActivity = value),
@@ -211,8 +262,10 @@ class _CrewDebugToolPageState extends State<CrewDebugToolPage> {
                   _showActivity = true;
                   _showLeave = true;
                   _showLocation = true;
+                  _showDirectReport = true;
                   _taskStatus = 'In progress';
                   _leaveStatus = 'Pending approval';
+                  _directReportStatus = 'Awaiting verification';
                   _activityMonths = 1;
                 }),
                 child: const Text('Reset demo previews'),

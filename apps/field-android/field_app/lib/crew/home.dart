@@ -197,7 +197,7 @@ class _CrewHomePageState extends State<CrewHomePage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Swachh Pravah',
+                  'Pravah Saarthi',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w800,
@@ -208,7 +208,7 @@ class _CrewHomePageState extends State<CrewHomePage> {
                 ),
                 SizedBox(height: 2),
                 Text(
-                  'SAARTHI  •  FIELD TEAM',
+                  'FIELD TEAM',
                   style: TextStyle(
                     color: Color(0xFF99F6E4),
                     fontSize: 9,

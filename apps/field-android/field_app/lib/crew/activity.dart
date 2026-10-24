@@ -235,17 +235,38 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                               segments: const [
                                 ButtonSegment(
                                   value: 1,
-                                  label: Text('1 mo', maxLines: 1),
+                                  label: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      '1 mo',
+                                      maxLines: 1,
+                                      softWrap: false,
+                                    ),
+                                  ),
                                   tooltip: '1 month',
                                 ),
                                 ButtonSegment(
                                   value: 3,
-                                  label: Text('3 mo', maxLines: 1),
+                                  label: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      '3 mo',
+                                      maxLines: 1,
+                                      softWrap: false,
+                                    ),
+                                  ),
                                   tooltip: '3 months',
                                 ),
                                 ButtonSegment(
                                   value: 6,
-                                  label: Text('6 mo', maxLines: 1),
+                                  label: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      '6 mo',
+                                      maxLines: 1,
+                                      softWrap: false,
+                                    ),
+                                  ),
                                   tooltip: '6 months',
                                 ),
                               ],

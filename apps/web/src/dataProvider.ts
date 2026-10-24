@@ -11,6 +11,18 @@ const dashboardKey = "municipal";
 let pendingSave: Promise<void> = Promise.resolve();
 let loadedUpdatedAt: string | null = null;
 
+function directCleaningReportsError(
+  action: "load" | "refresh",
+  error: { code: string; message: string },
+): Error {
+  const missingTable = error.code === "PGRST205" || error.code === "42P01";
+  const actionLabel = action === "load" ? "load" : "refresh";
+  const message = missingTable
+    ? "the public.direct_cleaning_reports table is missing from Supabase. Run backend/supabase/migrations/202610240002_direct_cleaning_reports.sql in the Supabase SQL Editor, then reload the schema cache."
+    : error.message;
+  return new Error(`Could not ${actionLabel} direct cleaning reports: ${message}`);
+}
+
 export async function loadDashboardState(): Promise<AppState> {
   if (!supabase) throw new Error("Supabase is not configured.");
   const client = supabase;
@@ -59,9 +71,7 @@ export async function loadDashboardState(): Promise<AppState> {
     );
   }
   if (directReportResult.error) {
-    throw new Error(
-      `Could not load direct cleaning reports: ${directReportResult.error.message}`,
-    );
+    throw directCleaningReportsError("load", directReportResult.error);
   }
 
   const citizenReports = await mapCitizenRows(citizenResult.data);
@@ -210,9 +220,7 @@ export async function refreshCitizenWorkflow(
     throw new Error(`Could not refresh field tasks: ${fieldTaskResult.error.message}`);
   }
   if (directReportResult.error) {
-    throw new Error(
-      `Could not refresh direct cleaning reports: ${directReportResult.error.message}`,
-    );
+    throw directCleaningReportsError("refresh", directReportResult.error);
   }
   const citizenReports = await mapCitizenRows(citizenResult.data);
   const directReports = await mapDirectCleaningRows(directReportResult.data);

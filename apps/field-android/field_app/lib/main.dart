@@ -28,6 +28,8 @@ part 'tasks/task_details.dart';
 part 'camera/live_camera.dart';
 part 'tasks/task_detail_row.dart';
 
+const _debugToolPin = '12345678';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   const supabaseUrl = String.fromEnvironment('SUPABASE_URL');

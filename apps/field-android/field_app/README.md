@@ -1,7 +1,7 @@
-# Swachh Pravah Sarthi Field App
+# Pravah Saarthi Field App
 
-The Android launcher label and icon use the Swachh Pravah Sarthi branding; the
-source icon is kept at `assets/field_app_icon.png`.
+The Android launcher and in-app header use the Pravah Saarthi name. The source
+icon is kept at `assets/field_app_icon.png`.
 
 The field app uses the shared Supabase project for authentication, crew
 profiles, assigned tasks, work evidence, credits, leave requests, and private
@@ -36,10 +36,19 @@ crew member to keep the temporary password secure. If account creation fails,
 confirm that `create-crew-account` is deployed to this same Supabase project
 and that the signed-in administrator has an active `admin` profile.
 
-Crew navigation is organized into **Tasks**, **Activity**, and **Profile**.
+Crew navigation is organized into **Tasks**, **Report**, **Activity**, and
+**Profile**. The Report tab submits GPS-tagged cleaning observations directly
+to the dashboard cleaning queue, without creating an inspection task.
+Administrators award the configured ward cleaning credits after verifying a
+report. Apply
+`../../../backend/supabase/migrations/202610240002_direct_cleaning_reports.sql` in
+Supabase SQL Editor after the earlier shared-backend migrations.
+
 The profile tab shows the member's municipal ID card and includes leave
-requests, account support, and sign-out. Task date ranges remain available
-inside the Tasks tab.
+requests, account support, local debug previews, and sign-out. Debug previews
+use the same demo PIN as the citizen app and never modify live assignments,
+credits, location, or evidence. Task date ranges remain available inside the
+Tasks tab.
 
 ## Run and build
 
