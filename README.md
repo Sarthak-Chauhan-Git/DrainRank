@@ -449,7 +449,8 @@ flutter analyze
 flutter test
 flutter run `
   --dart-define=SUPABASE_URL=https://your-project.supabase.co `
-  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key `
+  --dart-define=GEOAPIFY_API_KEY=your-geoapify-key
 ```
 
 Enable Supabase Email authentication. The app displays a configuration message
@@ -467,7 +468,8 @@ flutter analyze
 flutter test
 flutter run `
   --dart-define=SUPABASE_URL=https://your-project.supabase.co `
-  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key `
+  --dart-define=GEOAPIFY_API_KEY=your-geoapify-key
 ```
 
 For the production/shared Supabase workflow, review and apply all SQL

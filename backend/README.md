@@ -11,16 +11,17 @@ Edge Function lives in
 ## Before applying migrations
 
 The project already has citizen/staff roles, data tables, storage buckets and
-citizen-photo policies. The user has confirmed the relevant columns, constraints,
-role helpers, and private bucket settings. Do not run an older migration or
-replace those policies. The shared-app migration adds own-row/admin policies
-for the existing credit and leave tables, without replacing their other
-policies. Review both checked-in migration files; they have been adapted to
-the existing schema.
+role helper functions. The checked-in citizen report access migration adds
+owner-scoped report and photo permissions without changing table structure or
+replacing existing policies. The shared-app migration adds own-row/admin
+policies for the existing credit and leave tables. Review the migrations
+against the live schema before applying them.
 
 After confirming compatibility, apply each complete migration in timestamp
-order in Supabase SQL Editor. If you instead use the CLI, reconcile migration
-history first; do not apply the same migration through both paths.
+order in Supabase SQL Editor, including
+`202610240003_citizen_report_submission_access.sql`. If you instead use the
+CLI, reconcile migration history first; do not apply the same migration
+through both paths.
 
 ```powershell
 npx supabase login

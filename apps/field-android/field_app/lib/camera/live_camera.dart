@@ -36,7 +36,7 @@ class _LiveWorkCameraPageState extends State<LiveWorkCameraPage>
         throw StateError('No camera available on this device or browser.');
       }
       final camera = cameras.firstWhere(
-            (camera) => camera.lensDirection == CameraLensDirection.back,
+        (camera) => camera.lensDirection == CameraLensDirection.back,
         orElse: () => cameras.first,
       );
       final controller = CameraController(
@@ -46,6 +46,7 @@ class _LiveWorkCameraPageState extends State<LiveWorkCameraPage>
       );
       _controller = controller;
       await controller.initialize();
+      await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
       if (!mounted) return;
       setState(() => _initializing = false);
     } catch (e) {
@@ -60,7 +61,7 @@ class _LiveWorkCameraPageState extends State<LiveWorkCameraPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-// Avoid leaving the camera active when the app goes into the background.
+    // Avoid leaving the camera active when the app goes into the background.
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       _controller?.dispose();
@@ -81,9 +82,8 @@ class _LiveWorkCameraPageState extends State<LiveWorkCameraPage>
       final image = await controller.takePicture();
       final capturedAt = DateTime.now();
       if (!mounted) return;
-      Navigator.of(context).pop(
-        LiveCameraCapture(image: image, capturedAt: capturedAt),
-      );
+      Navigator.of(context)
+          .pop(LiveCameraCapture(image: image, capturedAt: capturedAt));
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -113,21 +113,21 @@ class _LiveWorkCameraPageState extends State<LiveWorkCameraPage>
               child: Center(
                 child: _error != null
                     ? Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(_error!, textAlign: TextAlign.center),
-                )
-                    : _initializing || controller == null ||
-                    !controller.value.isInitialized
+                        padding: const EdgeInsets.all(24),
+                        child: Text(_error!, textAlign: TextAlign.center),
+                      )
+                    : _initializing ||
+                          controller == null ||
+                          !controller.value.isInitialized
                     ? const CircularProgressIndicator()
-                    : AspectRatio(
-                  aspectRatio: controller.value.aspectRatio,
-                  child: CameraPreview(controller),
-                ),
+                    : CameraPreview(controller),
               ),
             ),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text('Take a new work photo. GPS coordinates and capture time are embedded in the JPG EXIF metadata.'),
+              child: Text(
+                'Take a new work photo. GPS coordinates and capture time are embedded in the JPG EXIF metadata.',
+              ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),

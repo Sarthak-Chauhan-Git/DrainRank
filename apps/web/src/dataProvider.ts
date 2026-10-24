@@ -51,7 +51,7 @@ export async function loadDashboardState(): Promise<AppState> {
     client
       .from("direct_cleaning_reports")
       .select(
-        "report_id,reporter_uid,issue_category,description,ward,location_description,latitude,longitude,accuracy_meters,photo_path,captured_at,review_status,created_at",
+        "report_id,reporter_uid,issue_category,linked_drain_id,is_urgent_flagged,estimated_priority_score,description,ward,location_description,latitude,longitude,accuracy_meters,photo_path,captured_at,review_status,created_at",
       )
       .order("created_at", { ascending: false }),
   ]);
@@ -209,7 +209,7 @@ export async function refreshCitizenWorkflow(
     supabase
       .from("direct_cleaning_reports")
       .select(
-        "report_id,reporter_uid,issue_category,description,ward,location_description,latitude,longitude,accuracy_meters,photo_path,captured_at,review_status,created_at",
+        "report_id,reporter_uid,issue_category,linked_drain_id,is_urgent_flagged,estimated_priority_score,description,ward,location_description,latitude,longitude,accuracy_meters,photo_path,captured_at,review_status,created_at",
       )
       .order("created_at", { ascending: false }),
   ]);
@@ -308,6 +308,9 @@ type DirectCleaningReportRecord = {
   report_id: string;
   reporter_uid: string;
   issue_category: string;
+  linked_drain_id: string;
+  is_urgent_flagged: boolean;
+  estimated_priority_score: number;
   description: string;
   ward: string;
   location_description: string;
@@ -365,12 +368,14 @@ function buildDirectCleaningDrains(
       ward: report.ward,
       reason: report.description,
       status: previous?.status ?? "Cleaning Recommended",
-      priority: previous?.priority ?? 75,
-      consequence: previous?.consequence ?? 0.8,
+      priority: report.estimated_priority_score,
+      consequence: report.is_urgent_flagged ? 1 : previous?.consequence ?? 0.8,
       catchment: previous?.catchment ?? 0.8,
       visibleBlockage: previous?.visibleBlockage ?? 75,
       evidenceUncertainty: previous?.evidenceUncertainty ?? 0.2,
-      condition: "Crew-reported cleaning needed",
+      condition: report.is_urgent_flagged
+        ? "Cleaning needed near a priority facility"
+        : "Crew-reported cleaning needed",
       evidenceStatus:
         report.review_status === "verified"
           ? "Direct report verified"

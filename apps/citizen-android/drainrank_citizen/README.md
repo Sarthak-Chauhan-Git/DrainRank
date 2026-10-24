@@ -12,8 +12,9 @@ according to the project's authentication settings. Authenticated citizens
 upload report photos to the private `citizen-photos` bucket and insert report
 records in `public.citizen_reports`.
 
-Apply the migrations in `backend/supabase/migrations` before running the app.
-The policies restrict each citizen to their own reports and photos; dashboard
+Apply the migrations in `backend/supabase/migrations` before running the app,
+including `202610240003_citizen_report_submission_access.sql`. The policies
+restrict each citizen to their own reports and photos; dashboard
 administrators can review all reports.
 
 Pass the project's URL and publishable key as Dart defines when running or

@@ -24,11 +24,23 @@ class _DirectCleaningReportPageState extends State<DirectCleaningReportPage> {
   String? _ward;
   List<String> _wards = [];
   Position? _position;
+  FieldPriorityAnalysis? _priorityAnalysis;
+  String? _priorityError;
   Uint8List? _photoBytes;
   DateTime? _capturedAt;
   bool _loadingWards = true;
   bool _busy = false;
   String? _error;
+
+  double? get _priorityScore {
+    final analysis = _priorityAnalysis;
+    if (analysis == null) return null;
+    return FieldPriorityAnalyzer.priorityScore(
+      issueCategory: _category,
+      urgent: analysis.urgent,
+      matchedDrain: analysis.matchedDrain,
+    );
+  }
 
   @override
   void initState() {
@@ -100,8 +112,21 @@ class _DirectCleaningReportPageState extends State<DirectCleaningReportPage> {
         capturedPosition,
         capture.capturedAt,
       );
+      FieldPriorityAnalysis? priorityAnalysis;
+      String? priorityError;
+      try {
+        priorityAnalysis = await FieldPriorityAnalyzer().analyze(
+          latitude: capturedPosition.latitude,
+          longitude: capturedPosition.longitude,
+          issueCategory: _category,
+        );
+      } catch (error) {
+        priorityError = 'Could not verify nearby facilities: $error';
+      }
       setState(() {
         _position = capturedPosition;
+        _priorityAnalysis = priorityAnalysis;
+        _priorityError = priorityError;
         _photoBytes = bytes;
         _capturedAt = capture.capturedAt;
       });
@@ -160,6 +185,15 @@ class _DirectCleaningReportPageState extends State<DirectCleaningReportPage> {
           'p_accuracy_meters': position.accuracy,
           'p_photo_path': photoPath,
           'p_captured_at': capturedAt.toUtc().toIso8601String(),
+          'p_linked_drain_id':
+              _priorityAnalysis?.matchedDrain?.drainId ?? 'PROVISIONAL-PIN',
+          'p_is_urgent_flagged': _priorityAnalysis?.urgent ?? false,
+          'p_estimated_priority_score':
+              _priorityScore ??
+              FieldPriorityAnalyzer.priorityScore(
+                issueCategory: _category,
+                urgent: false,
+              ),
         },
       );
       if (!mounted) return;
@@ -167,6 +201,8 @@ class _DirectCleaningReportPageState extends State<DirectCleaningReportPage> {
       _locationController.clear();
       setState(() {
         _position = null;
+        _priorityAnalysis = null;
+        _priorityError = null;
         _photoBytes = null;
         _capturedAt = null;
       });
@@ -204,81 +240,154 @@ class _DirectCleaningReportPageState extends State<DirectCleaningReportPage> {
         style: TextStyle(color: Color(0xFF64748B)),
       ),
       const SizedBox(height: 18),
-      DropdownButtonFormField<String>(
-        initialValue: _categories.containsKey(_category) ? _category : null,
-        decoration: const InputDecoration(labelText: 'Issue type'),
-        items: _categories.entries
-            .map(
-              (entry) =>
-                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
-            )
-            .toList(),
-        onChanged: _busy
-            ? null
-            : (value) => setState(() => _category = value ?? _category),
-      ),
-      const SizedBox(height: 12),
-      if (_loadingWards)
-        const LinearProgressIndicator()
-      else if (_wards.isEmpty)
-        const Text('No wards are configured for report credits.')
-      else
-        DropdownButtonFormField<String>(
-          initialValue: _ward,
-          decoration: const InputDecoration(labelText: 'Ward'),
-          items: _wards
-              .map((ward) => DropdownMenuItem(value: ward, child: Text(ward)))
-              .toList(),
-          onChanged: _busy ? null : (value) => setState(() => _ward = value),
-        ),
-      const SizedBox(height: 12),
-      TextField(
-        controller: _locationController,
-        enabled: !_busy,
-        decoration: const InputDecoration(
-          labelText: 'Location / nearby landmark',
-          hintText: 'Road, crossing, or nearby landmark',
-        ),
-      ),
-      const SizedBox(height: 12),
-      TextField(
-        controller: _descriptionController,
-        enabled: !_busy,
-        minLines: 3,
-        maxLines: 5,
-        decoration: const InputDecoration(
-          labelText: 'What needs cleaning?',
-          alignLabelWithHint: true,
-        ),
-      ),
-      const SizedBox(height: 12),
-      OutlinedButton.icon(
-        onPressed: _busy ? null : _capturePhoto,
-        icon: const Icon(Icons.location_on_outlined),
-        label: Text(
-          _position == null
-              ? 'Capture GPS-tagged photo'
-              : 'Retake GPS-tagged photo',
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '1. GPS-tagged Photograph',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Capture the cleaning issue at its location. The photo and '
+                'coordinates are attached to this report.',
+                style: TextStyle(color: Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _capturePhoto,
+                icon: const Icon(Icons.location_on_outlined),
+                label: Text(
+                  _position == null
+                      ? 'Capture GPS-tagged photo'
+                      : 'Retake GPS-tagged photo',
+                ),
+              ),
+              if (_position != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'GPS: ${_position!.latitude.toStringAsFixed(5)}, '
+                  '${_position!.longitude.toStringAsFixed(5)} '
+                  '(±${_position!.accuracy.toStringAsFixed(0)} m)',
+                  style: const TextStyle(
+                    color: Color(0xFF475569),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+              if (_photoBytes != null) ...[
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    _photoBytes!,
+                    height: 180,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
       if (_position != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Text(
-            'GPS: ${_position!.latitude.toStringAsFixed(5)}, '
-            '${_position!.longitude.toStringAsFixed(5)} '
-            '(±${_position!.accuracy.toStringAsFixed(0)} m)',
-            style: const TextStyle(color: Color(0xFF475569), fontSize: 12),
+        Column(
+          children: [const SizedBox(height: 12), _buildPriorityAssessment()],
+        ),
+      const SizedBox(height: 12),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '2. Issue Classification',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              RadioGroup<String>(
+                groupValue: _category,
+                onChanged: (value) {
+                  if (!_busy && value != null) {
+                    setState(() => _category = value);
+                  }
+                },
+                child: Column(
+                  children: _categories.entries
+                      .map(
+                        (entry) => RadioListTile<String>(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(entry.value),
+                          value: entry.key,
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ],
           ),
         ),
-      if (_photoBytes != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.memory(_photoBytes!, height: 180, fit: BoxFit.cover),
+      ),
+      const SizedBox(height: 12),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '3. Location and Description',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              if (_loadingWards)
+                const LinearProgressIndicator()
+              else if (_wards.isEmpty)
+                const Text('No wards are configured for report credits.')
+              else
+                DropdownButtonFormField<String>(
+                  initialValue: _ward,
+                  decoration: const InputDecoration(labelText: 'Ward'),
+                  items: _wards
+                      .map(
+                        (ward) =>
+                            DropdownMenuItem(value: ward, child: Text(ward)),
+                      )
+                      .toList(),
+                  onChanged: _busy
+                      ? null
+                      : (value) => setState(() => _ward = value),
+                ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _locationController,
+                enabled: !_busy,
+                decoration: const InputDecoration(
+                  labelText: 'Location / nearby landmark',
+                  hintText: 'Road, crossing, or nearby landmark',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _descriptionController,
+                enabled: !_busy,
+                minLines: 3,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  labelText: 'What needs cleaning?',
+                  alignLabelWithHint: true,
+                ),
+              ),
+            ],
           ),
         ),
+      ),
       if (_error != null) ...[
         const SizedBox(height: 12),
         Text(
@@ -300,4 +409,180 @@ class _DirectCleaningReportPageState extends State<DirectCleaningReportPage> {
       ),
     ],
   );
+
+  Widget _buildPriorityAssessment() {
+    final position = _position!;
+    final analysis = _priorityAnalysis;
+    final nearest = analysis?.nearestPlace;
+    final score =
+        _priorityScore ??
+        FieldPriorityAnalyzer.priorityScore(
+          issueCategory: _category,
+          urgent: false,
+        );
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.insights_outlined, color: Color(0xFF0F766E)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Location priority assessment',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Text(
+                  '${score.toStringAsFixed(1)} / 100',
+                  style: const TextStyle(
+                    color: Color(0xFF0F766E),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: analysis?.urgent == true
+                    ? const Color(0xFFFFE4E6)
+                    : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: analysis?.urgent == true
+                      ? const Color(0xFFB91C1C)
+                      : const Color(0xFFDCE5E7),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    analysis?.urgent == true
+                        ? Icons.priority_high_rounded
+                        : Icons.verified_outlined,
+                    color: analysis?.urgent == true
+                        ? const Color(0xFF991B1B)
+                        : const Color(0xFF475569),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      analysis?.urgent == true
+                          ? 'High urgency detected: ${nearest!.name} is '
+                                '${nearest.distanceMeters.toStringAsFixed(0)} m away.'
+                          : analysis == null
+                          ? 'Priority lookup unavailable; showing the standard '
+                                'location score.'
+                          : 'Standard priority: no matching facility within 500 m.',
+                      style: TextStyle(
+                        color: analysis?.urgent == true
+                            ? const Color(0xFF7F1D1D)
+                            : const Color(0xFF475569),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_priorityError != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                _priorityError!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+            if (analysis?.matchedDrain != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Linked drain: ${analysis!.matchedDrain!.drainId} '
+                '(${analysis.matchedDrain!.name})',
+                style: const TextStyle(color: Color(0xFF475569)),
+              ),
+            ],
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 180,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: FlutterMap(
+                  options: MapOptions(
+                    initialCenter: LatLng(
+                      position.latitude,
+                      position.longitude,
+                    ),
+                    initialZoom: 14.5,
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.example.field_app',
+                    ),
+                    CircleLayer(
+                      circles: [
+                        CircleMarker(
+                          point: LatLng(position.latitude, position.longitude),
+                          radius: fieldPriorityRadiusMeters,
+                          useRadiusInMeter: true,
+                          color: const Color(0xFF0F766E).withValues(alpha: .12),
+                          borderColor: const Color(0xFF0F766E),
+                          borderStrokeWidth: 2,
+                        ),
+                      ],
+                    ),
+                    MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: LatLng(position.latitude, position.longitude),
+                          width: 36,
+                          height: 36,
+                          child: const Icon(
+                            Icons.location_on,
+                            color: Color(0xFFB91C1C),
+                            size: 34,
+                          ),
+                        ),
+                        for (final place
+                            in analysis?.nearbyPlaces ??
+                                const <FieldNearbyPlace>[])
+                          Marker(
+                            point: LatLng(place.latitude, place.longitude),
+                            width: 32,
+                            height: 32,
+                            child: Tooltip(
+                              message:
+                                  '${place.name} · '
+                                  '${place.distanceMeters.toStringAsFixed(0)} m',
+                              child: const Icon(
+                                Icons.local_hospital,
+                                color: Color(0xFF7C3AED),
+                                size: 26,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Geoapify facility search radius: 500 m. Score follows the '
+              'citizen app DrainRank formula.',
+              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

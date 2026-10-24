@@ -43,6 +43,16 @@ Administrators award the configured ward cleaning credits after verifying a
 report. Apply
 `../../../backend/supabase/migrations/202610240002_direct_cleaning_reports.sql` in
 Supabase SQL Editor after the earlier shared-backend migrations.
+The shared in-app camera keeps both the preview and captured photo in portrait
+orientation.
+
+After capturing the report photo, the app searches Geoapify Places for
+hospitals, schools, universities, colleges, police stations, and fire stations
+within 500 m. The map shows the search radius and matching places. A nearby
+result marks the report urgent, as in the citizen app. The displayed priority
+score uses the same DrainRank formula and known-drain matching rules as the
+citizen client; the score, urgency flag, and linked drain ID are stored with
+the report for dashboard ranking.
 
 The profile tab shows the member's municipal ID card and includes leave
 requests, account support, a PIN-protected debug-mode switch, and sign-out.
@@ -60,7 +70,8 @@ citizen apps:
 flutter pub get
 flutter run `
   --dart-define=SUPABASE_URL=https://your-project.supabase.co `
-  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key `
+  --dart-define=GEOAPIFY_API_KEY=your-geoapify-key
 ```
 
 For an Android debug build:
@@ -68,7 +79,8 @@ For an Android debug build:
 ```powershell
 flutter build apk --debug `
   --dart-define=SUPABASE_URL=https://your-project.supabase.co `
-  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key `
+  --dart-define=GEOAPIFY_API_KEY=your-geoapify-key
 ```
 
 Work-order assignment is synchronized from the dashboard to `field_tasks`.

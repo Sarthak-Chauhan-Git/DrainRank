@@ -2,6 +2,10 @@ create table if not exists public.direct_cleaning_reports (
   report_id text primary key,
   reporter_uid uuid not null references auth.users(id) on delete cascade,
   issue_category text not null,
+  linked_drain_id text not null default 'PROVISIONAL-PIN',
+  is_urgent_flagged boolean not null default false,
+  estimated_priority_score double precision not null default 0
+    check (estimated_priority_score between 0 and 100),
   description text not null,
   ward text not null,
   location_description text not null,
@@ -26,6 +30,12 @@ create table if not exists public.direct_cleaning_reports (
       and accuracy_meters >= 0
     )
 );
+
+alter table public.direct_cleaning_reports
+  add column if not exists linked_drain_id text not null default 'PROVISIONAL-PIN',
+  add column if not exists is_urgent_flagged boolean not null default false,
+  add column if not exists estimated_priority_score double precision not null
+    default 0 check (estimated_priority_score between 0 and 100);
 
 create index if not exists direct_cleaning_reports_created_at_idx
   on public.direct_cleaning_reports (created_at desc);
@@ -102,6 +112,11 @@ revoke all on function public.list_direct_report_wards()
   from public, anon;
 grant execute on function public.list_direct_report_wards() to authenticated;
 
+drop function if exists public.submit_direct_cleaning_report(
+  text, text, text, text, text, double precision, double precision,
+  double precision, text, timestamptz
+);
+
 create or replace function public.submit_direct_cleaning_report(
   p_report_id text,
   p_issue_category text,
@@ -112,7 +127,10 @@ create or replace function public.submit_direct_cleaning_report(
   p_longitude double precision,
   p_accuracy_meters double precision,
   p_photo_path text,
-  p_captured_at timestamptz
+  p_captured_at timestamptz,
+  p_linked_drain_id text,
+  p_is_urgent_flagged boolean,
+  p_estimated_priority_score double precision
 )
 returns void
 language plpgsql
@@ -152,6 +170,14 @@ begin
     raise exception 'A valid GPS-tagged report photo is required'
       using errcode = '22023';
   end if;
+  if p_linked_drain_id is null
+    or length(trim(p_linked_drain_id)) = 0
+    or p_is_urgent_flagged is null
+    or p_estimated_priority_score is null
+    or p_estimated_priority_score not between 0 and 100 then
+    raise exception 'A valid location priority assessment is required'
+      using errcode = '22023';
+  end if;
 
   select array_agg(ward_name)
   into available_wards
@@ -168,12 +194,14 @@ begin
   end if;
 
   insert into public.direct_cleaning_reports (
-    report_id, reporter_uid, issue_category, description, ward,
+    report_id, reporter_uid, issue_category, linked_drain_id,
+    is_urgent_flagged, estimated_priority_score, description, ward,
     location_description, latitude, longitude, accuracy_meters,
     photo_path, captured_at
   )
   values (
-    p_report_id, current_uid, p_issue_category, trim(p_description), p_ward,
+    p_report_id, current_uid, p_issue_category, p_linked_drain_id,
+    p_is_urgent_flagged, p_estimated_priority_score, trim(p_description), p_ward,
     trim(p_location_description), p_latitude, p_longitude, p_accuracy_meters,
     p_photo_path, p_captured_at
   );
@@ -182,11 +210,11 @@ $$;
 
 revoke all on function public.submit_direct_cleaning_report(
   text, text, text, text, text, double precision, double precision,
-  double precision, text, timestamptz
+  double precision, text, timestamptz, text, boolean, double precision
 ) from public, anon;
 grant execute on function public.submit_direct_cleaning_report(
   text, text, text, text, text, double precision, double precision,
-  double precision, text, timestamptz
+  double precision, text, timestamptz, text, boolean, double precision
 ) to authenticated;
 
 create or replace function public.review_direct_cleaning_report(
