@@ -16,6 +16,21 @@ add five priority points each (capped at 100). Assigning an inspection crew
 creates a field task. The field worker's inspection result moves the area to
 the cleaning queue when cleaning is required, or to monitoring otherwise.
 
+## Offline debug mode
+
+Visit `/debug` (for example, `http://localhost:5173/debug` while the web app is
+running) to open the standalone offline workflow preview. It bypasses the
+Supabase `AuthGate` and does not require `.env.local` or any Supabase setup.
+The demo PIN is `12345678`; the Administration page's local debug controls use
+that same password. This PIN is public and is for testing only, not security.
+
+Create a citizen report, move it through the inspection and cleaning queues,
+then verify completed work to award 100 demo credits. The demo keeps all state
+in React memory only: it does not use `localStorage` or `sessionStorage`, make
+backend requests, or modify database/storage. Reloading, locking the session,
+or leaving the route discards its data. Administration controls can load a
+sample report or clear debug data without affecting the real dashboard.
+
 ## Supabase setup
 
 1. The dashboard is adapted to the existing `profiles` and `dashboard_state`

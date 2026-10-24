@@ -1480,9 +1480,9 @@ function DrainRankApp() {
     <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
         <div className="brand-panel">
-          <img className="brand-logo" src="/logo.png" alt="Swachh Pravah Seva" />
+          <img className="brand-logo" src="/logo.png" alt="Swachh Pravah" />
           <div>
-            <div className="brand-name">Swachh Pravah Seva</div>
+            <div className="brand-name">Swachh Pravah</div>
             <div className="brand-subtitle">
               From Citizen Report to Verified Outcome
             </div>

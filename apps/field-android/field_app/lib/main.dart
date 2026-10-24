@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'dart:math' as math;
 
 import 'backend/supabase_backend.dart';
+import 'local_debug_demo.dart';
 
 part 'app/app.dart';
 part 'camera/gps_exif.dart';
@@ -29,9 +30,14 @@ part 'camera/live_camera.dart';
 part 'tasks/task_detail_row.dart';
 
 const _debugToolPin = '12345678';
+const _localDebugMode = bool.fromEnvironment('LOCAL_DEBUG_MODE');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (_localDebugMode) {
+    runApp(const LocalFieldDebugApp());
+    return;
+  }
   const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
   const supabasePublishableKey = String.fromEnvironment(
     'SUPABASE_PUBLISHABLE_KEY',

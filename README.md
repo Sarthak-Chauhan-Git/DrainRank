@@ -290,15 +290,16 @@ evidence or perform operational actions.
 
 ## Current development stage
 
-**Stage: functional prototype / integration hardening.**
+**Stage: Pravah 1.0 local prototype / Supabase integration pending verification.**
 
-The web dashboard has a substantial implemented surface and a real Supabase
-authorization/persistence path. Citizen reports and dashboard-to-field
-assignments now have shared Supabase paths in code. The field app uses
-Supabase-backed accounts, tasks, work evidence, and credits. The shared schema
-and crew-provisioning Edge Function are deployed; live smoke tests remain.
-Field evidence review is not yet integrated into the web dashboard's separate
-evidence workflow.
+All three clients have local test paths that do not require Supabase: open the
+web dashboard at `/debug`, or build either Flutter app with
+`--dart-define=LOCAL_DEBUG_MODE=true`. These isolated test workspaces keep
+sample data in memory and do not write to Supabase. The web dashboard's
+normal routes and the mobile apps' normal builds continue to use the configured
+Supabase project. The connected Android device was used to verify the field
+app's startup fix; the end-to-end production database workflow still requires
+the outstanding SQL migrations and live-account verification.
 
 What is implemented now:
 
@@ -315,6 +316,10 @@ What is implemented now:
 - shared report/task backend migration and protected crew-provisioning
   function (deployed, but not yet smoke-tested end to end);
 - a web CI build and citizen responsive widget tests.
+- password-gated local-only workflow testing for citizen reports, field
+  cleaning reports/credits, and the web administration debug panel;
+- a pre-Flutter startup fix pinning `shared_preferences_android` to a
+  platform-channel release compatible with the project runtime.
 
 ## Remaining work and known gaps
 
@@ -353,12 +358,73 @@ Prioritize these before calling the system production-ready:
    authoritative, add an explicit unavailable-model experience, test prompt
    and input boundaries, and never present local-model recommendations as
    approvals or completed actions.
-10. **Update Flutter dependency metadata.** The field app's lockfile and
-    generated platform plugin files still need regeneration with the required
-    Flutter/Dart SDK; the installed SDK is older than the project's declared
-    minimum.
+10. **Complete production acceptance testing.** The local prototype has
+    regression tests and Android launch smoke tests, but production auth,
+    storage policies, queue transitions, and credit awards must be verified
+    against a staging Supabase project before a public release.
 
 ## Local development
+
+### Clone and prerequisites
+
+From a new checkout on Windows:
+
+```powershell
+git clone https://github.com/Sarthak-Chauhan-Git/DrainRank.git
+Set-Location DrainRank
+```
+
+Install Node.js 22 LTS and Flutter 3.47 or later (Dart 3.13.5 or later), and
+install Android Studio/Android SDK for Android builds. On Windows, enable
+Developer Mode before Flutter resolves plugins that need symlinks. Connect and
+authorize the Android phone with USB debugging, then check it with
+`flutter devices`.
+
+Each app has an independent dependency manifest. Install its dependencies from
+the corresponding app directory; do not run `flutter pub get` from the repo
+root.
+
+### Run all three local test workspaces
+
+These test workspaces use the shared demo PIN `12345678`, keep test state in
+memory, and do not connect to or modify Supabase. The PIN is a convenience gate
+for local testing, not security.
+
+For the web dashboard, install and start Vite:
+
+```powershell
+Set-Location apps\web
+npm ci
+npm run dev
+```
+
+Open the local Vite URL with `/debug` appended (normally
+`http://localhost:5173/debug`). This route works without `.env.local`.
+
+Build and install the citizen test app on the connected Android device:
+
+```powershell
+Set-Location ..\citizen-android\drainrank_citizen
+flutter pub get
+flutter test
+flutter build apk --debug --dart-define=LOCAL_DEBUG_MODE=true
+flutter install
+```
+
+Build and install the field-team test app:
+
+```powershell
+Set-Location ..\..\field-android\field_app
+flutter pub get
+flutter test
+flutter build apk --debug --dart-define=LOCAL_DEBUG_MODE=true
+flutter install
+```
+
+To test the ordinary Supabase-integrated builds instead, omit
+`LOCAL_DEBUG_MODE=true` and provide the Supabase project URL and **publishable**
+key with `--dart-define` as shown below. Never put a service-role key into a
+client build.
 
 ### Web dashboard
 
@@ -376,7 +442,7 @@ npm run lint
 Inspect the existing Supabase schema and policies before applying migrations.
 Promote the administrator's Auth-linked `profiles` row to role `admin`; do not
 create a separate dashboard membership table.
-The detailed Supabase Storage setup is in [`apps/web/README.md`](apps/web/README.md).
+The detailed Supabase Storage and local-debug notes are in [`apps/web/README.md`](apps/web/README.md).
 Never put a Supabase service-role key or Ollama credentials in browser code.
 
 For the local assistant, install/run Ollama on the same machine and make the
@@ -416,8 +482,12 @@ flutter run `
   --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 ```
 
-Apply the two reviewed SQL migration files in order through Supabase SQL
-Editor. From `backend`, deploy the protected Edge Function:
+For the production/shared Supabase workflow, review and apply all SQL
+migrations in timestamp order from `backend/supabase/migrations` in the
+Supabase SQL Editor. This is not required for local-only test builds. Apply
+`202610240002_direct_cleaning_reports.sql` to enable direct field-cleaning
+reports and their admin-verified credits. From `backend`, deploy the protected
+Edge Function:
 
 ```powershell
 npx supabase login

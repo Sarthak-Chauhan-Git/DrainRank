@@ -50,6 +50,23 @@ use the same demo PIN as the citizen app and never modify live assignments,
 credits, location, or evidence. Task date ranges remain available inside the
 Tasks tab.
 
+## Local-only testing
+
+Build the isolated local test app without Supabase credentials:
+
+```powershell
+flutter pub get
+flutter test
+flutter run --dart-define=LOCAL_DEBUG_MODE=true
+```
+
+Enter the shared demo PIN `12345678`. The sample task, direct cleaning report,
+cleaning-queue review, activity, and credit award all exist only in app memory;
+no Supabase, GPS, camera, or storage calls are made by this test mode. Use
+`flutter build apk --debug --dart-define=LOCAL_DEBUG_MODE=true` and
+`flutter install` to install this test variant on a connected Android device.
+The PIN is embedded in the app and is not a production security boundary.
+
 ## Run and build
 
 Pass the same Supabase project URL and **publishable** key used by the web and

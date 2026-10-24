@@ -210,9 +210,11 @@ select {
 }
 
 .brand-name {
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 700;
   color: #f8fafc;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
 }
 
 .brand-subtitle {
