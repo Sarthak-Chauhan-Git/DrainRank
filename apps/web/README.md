@@ -53,6 +53,27 @@ sample report or clear debug data without affecting the real dashboard.
    **publishable** key from Supabase Project Settings → API. Never use the
    `service_role` key in the browser or commit `.env.local`.
 
+## Evidence review and report withdrawal
+
+The `/evidence` page shows real field-worker submissions from
+`field_work_updates`; it does not generate before/after placeholder images.
+Apply `202610240004_citizen_upload_and_field_evidence_review.sql` and
+`202610250003_award_field_credits_on_evidence_acceptance.sql` to the deployed
+Supabase project for evidence review and credit awards. Citizen report
+withdrawal also requires applying
+`202610250001_owner_authorized_report_withdrawal.sql`; updating the mobile app
+alone does not update the database RPC.
+
+## Field-app workers in Crew Management
+
+The Crew Management roster combines dashboard worker details with active
+`profiles` created by the field app. Apply
+`../../backend/supabase/migrations/202610250004_list_active_crew_profiles.sql`
+in the Supabase SQL Editor. Use **Refresh workers** to pull in an account
+created while the dashboard was already open. Newly synced workers appear as
+Unassigned; add them to a crew or select them individually when assigning a
+queue task.
+
 ## Reset test data
 
 After applying the reset migration, an authenticated administrator can use

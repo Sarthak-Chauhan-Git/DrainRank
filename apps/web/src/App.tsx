@@ -5,9 +5,7 @@ import {
   Navigate,
   Route,
   Routes,
-  useLocation,
   useNavigate,
-  useSearchParams,
 } from "react-router-dom";
 import {
   Bar,
@@ -34,7 +32,6 @@ import {
 } from "react-leaflet";
 import { divIcon } from "leaflet";
 import {
-  AlertTriangle,
   Award,
   Bell,
   BrainCircuit,
@@ -49,6 +46,7 @@ import {
   Gauge,
   Mail,
   MapPinned,
+  MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
   ShieldAlert,
@@ -64,6 +62,7 @@ import {
   loadDashboardState,
   resetOperationalData,
   refreshCitizenWorkflow,
+  refreshCrewRoster,
   saveDashboardState,
 } from "./dataProvider";
 import { uploadDashboardImage } from "./supabaseStorage";
@@ -269,7 +268,27 @@ export interface CrewRecord {
 
 interface CrewOption {
   name: string;
+  label?: string;
   members: string[];
+}
+
+function buildCrewOptions(
+  crews: CrewRecord[],
+  workers: CrewWorker[],
+): CrewOption[] {
+  return [
+    ...crews.map((crew) => ({
+      name: crew.name,
+      members: crew.memberIds
+        .map((id) => workers.find((worker) => worker.id === id)?.name)
+        .filter((name): name is string => Boolean(name)),
+    })),
+    ...workers.map((worker) => ({
+      name: worker.id,
+      label: `${worker.name} (${worker.id}) · individual`,
+      members: [worker.name],
+    })),
+  ];
 }
 
 function getTodayInputDate() {
@@ -547,53 +566,6 @@ function KmlOverlay() {
   );
 }
 
-function EvidenceIndexSidebar({ drains }: { drains: DrainRecord[] }) {
-  const navigate = useNavigate();
-  const reviewableDrains = drains.filter(
-    (drain) =>
-      (drain.status === "Pending Review" ||
-        drain.status === "Rework Required") &&
-      !drain.workStatus?.startsWith("Returned to field app"),
-  );
-
-  return (
-    <aside className="evidence-index-sidebar" aria-label="Evidence index">
-      <div className="evidence-index-header">
-        <ShieldCheck size={15} />
-        <div>
-          <strong>Evidence index</strong>
-          <span>{reviewableDrains.length} pending records</span>
-        </div>
-      </div>
-      <div className="evidence-index-list">
-        {reviewableDrains.map((drain) => (
-          <button
-            key={drain.evidenceId ?? `EVD-${drain.id}`}
-            type="button"
-            className="evidence-index-item"
-            onClick={() =>
-              navigate(
-                `/evidence?evidenceId=${encodeURIComponent(drain.evidenceId ?? `EVD-${drain.id}`)}`,
-              )
-            }
-            title={`${drain.evidenceId ?? `EVD-${drain.id}`} · ${drain.location}`}
-          >
-            <span className="evidence-index-id">
-              {drain.evidenceId ?? `EVD-${drain.id}`}
-            </span>
-            <span className="evidence-index-location">{drain.location}</span>
-            <span
-              className={`evidence-index-status ${getStatusColor(drain.status)}`}
-            >
-              {drain.status}
-            </span>
-          </button>
-        ))}
-      </div>
-    </aside>
-  );
-}
-
 function App() {
   return (
     <BrowserRouter>
@@ -603,7 +575,6 @@ function App() {
 }
 
 function DrainRankApp() {
-  const location = useLocation();
   const navigate = useNavigate();
   const dashboardSession = useContext(DashboardSessionContext);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -668,7 +639,7 @@ function DrainRankApp() {
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "*",
           schema: "public",
           table: "citizen_reports",
         },
@@ -735,6 +706,16 @@ function DrainRankApp() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
+  const handleRefreshWorkers = async () => {
+    const refreshedWorkers = await refreshCrewRoster(
+      appStateRef.current.workers,
+    );
+    setAppState((previous) => ({
+      ...previous,
+      workers: refreshedWorkers,
+    }));
+  };
+
   const handleOperationalDataReset = async () => {
     const currentState = appStateRef.current;
     const resetState: AppState = {
@@ -742,7 +723,6 @@ function DrainRankApp() {
       workers: currentState.workers,
       crews: currentState.crews,
     };
-
     setDataReady(false);
     let result: Awaited<ReturnType<typeof resetOperationalData>>;
     try {
@@ -1088,13 +1068,13 @@ function DrainRankApp() {
             sourceDrain.assignedCrew
               ?.split(",")
               .map((crew) => crew.trim())
-              .includes(worker.currentCrew) ?? false,
+              .some(
+                (assignment) =>
+                  assignment === worker.currentCrew ||
+                  assignment === worker.id,
+              ) ?? false,
         );
-        const members = roster.length
-          ? roster
-          : previous.workers.filter(
-              (worker) => worker.currentCrew === "Crew Alpha",
-            );
+        const members = roster;
         const totalWeight = members.reduce(
           (sum, worker) =>
             sum + (previous.creditPolicy.roleWeights[worker.role] ?? 1),
@@ -1517,10 +1497,6 @@ function DrainRankApp() {
         </nav>
       </aside>
 
-      {location.pathname === "/evidence" ? (
-        <EvidenceIndexSidebar drains={appState.drains} />
-      ) : null}
-
       <main className="main-panel">
         <header className="topbar">
           <div>
@@ -1608,12 +1584,7 @@ function DrainRankApp() {
               <QueueHubPage
                 initialTab="inspection"
                 drains={appState.drains}
-                crewOptions={appState.crews.map((crew) => ({
-                  name: crew.name,
-                  members: crew.memberIds
-                    .map((id) => appState.workers.find((worker) => worker.id === id)?.name)
-                    .filter((name): name is string => Boolean(name)),
-                }))}
+                crewOptions={buildCrewOptions(appState.crews, appState.workers)}
                 onInspectionAssign={handleInspectionAssignment}
                 onAssign={handleCrewAssignment}
                 onReviewDirectReport={handleDirectReportReview}
@@ -1627,12 +1598,7 @@ function DrainRankApp() {
               <QueueHubPage
                 initialTab="cleaning"
                 drains={appState.drains}
-                crewOptions={appState.crews.map((crew) => ({
-                  name: crew.name,
-                  members: crew.memberIds
-                    .map((id) => appState.workers.find((worker) => worker.id === id)?.name)
-                    .filter((name): name is string => Boolean(name)),
-                }))}
+                crewOptions={buildCrewOptions(appState.crews, appState.workers)}
                 onInspectionAssign={handleInspectionAssignment}
                 onAssign={handleCrewAssignment}
                 onReviewDirectReport={handleDirectReportReview}
@@ -1646,12 +1612,7 @@ function DrainRankApp() {
               <QueueHubPage
                 initialTab="inspection"
                 drains={appState.drains}
-                crewOptions={appState.crews.map((crew) => ({
-                  name: crew.name,
-                  members: crew.memberIds
-                    .map((id) => appState.workers.find((worker) => worker.id === id)?.name)
-                    .filter((name): name is string => Boolean(name)),
-                }))}
+                crewOptions={buildCrewOptions(appState.crews, appState.workers)}
                 onInspectionAssign={handleInspectionAssignment}
                 onAssign={handleCrewAssignment}
                 onReviewDirectReport={handleDirectReportReview}
@@ -1740,6 +1701,8 @@ function DrainRankApp() {
               <CrewManagementPage
                 workers={appState.workers}
                 crews={appState.crews}
+                drains={appState.drains}
+                onRefreshWorkers={handleRefreshWorkers}
                 reports={appState.reports}
                 pools={appState.creditPools}
                 allocations={appState.creditAllocations}
@@ -3209,6 +3172,9 @@ function CleaningQueuePage({
   ) => Promise<void>;
 }) {
   const [selectedDrainId, setSelectedDrainId] = useState<string | null>(null);
+  const [selectedActionDrainId, setSelectedActionDrainId] = useState<
+    string | null
+  >(null);
   const cleaningDrains = drains
     .filter(
       (drain) =>
@@ -3217,9 +3183,12 @@ function CleaningQueuePage({
         drain.status === "Rework Required",
     )
     .filter((drain) => !drain.assignedCrew);
+  const selectedActionDrain = cleaningDrains.find(
+    (drain) => drain.id === selectedActionDrainId,
+  );
 
   return (
-    <div className="page-stack">
+    <div className="page-stack cleaning-queue-page">
       <div className="panel">
         <div className="panel-header">
           <h2>Cleaning queue</h2>
@@ -3265,58 +3234,35 @@ function CleaningQueuePage({
                   </td>
                   <td>
                     {drain.directCleaningReport ? (
-                      drain.directReportReviewStatus === "pending" ? (
-                        <div className="queue-action-group">
-                          <button
-                            type="button"
-                            className="btn-secondary"
-                            onClick={() =>
-                              void onReviewDirectReport(drain.id, "verify")
-                            }
-                          >
-                            Verify &amp; award
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-secondary"
-                            onClick={() =>
-                              void onReviewDirectReport(drain.id, "reject")
-                            }
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      ) : (
-                        <span>
-                          {drain.directReportReviewStatus === "verified"
-                            ? "Verified"
-                            : "Rejected"}
-                        </span>
-                      )
+                      <span
+                        className={`status-chip cleaning-report-status ${
+                          drain.directReportReviewStatus === "verified"
+                            ? "cleaning-report-status--verified"
+                            : drain.directReportReviewStatus === "rejected"
+                              ? "cleaning-report-status--rejected"
+                              : "cleaning-report-status--pending"
+                        }`}
+                      >
+                        {drain.directReportReviewStatus === "verified"
+                          ? "Verified"
+                          : drain.directReportReviewStatus === "rejected"
+                            ? "Rejected"
+                            : "Pending review"}
+                      </span>
                     ) : (
                       "—"
                     )}
                   </td>
                   <td>
-                    <div className="queue-action-group">
-                      {drain.directReportPhoto ? (
-                        <a
-                          className="btn-secondary"
-                          href={drain.directReportPhoto}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          View photo
-                        </a>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() => setSelectedDrainId(drain.id)}
-                      >
-                        Assign Crew
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className="cleaning-queue-action-button"
+                      aria-label={`Actions for ${drain.id}`}
+                      onClick={() => setSelectedActionDrainId(drain.id)}
+                    >
+                      <MoreVertical size={18} aria-hidden="true" />
+                      <span>Actions</span>
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -3333,6 +3279,107 @@ function CleaningQueuePage({
           onAssign={onAssign}
         />
       ) : null}
+      {selectedActionDrain ? (
+        <QueueActionsModal
+          drain={selectedActionDrain}
+          onClose={() => setSelectedActionDrainId(null)}
+          onAssign={() => {
+            setSelectedActionDrainId(null);
+            setSelectedDrainId(selectedActionDrainId);
+          }}
+          onReview={onReviewDirectReport}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function QueueActionsModal({
+  drain,
+  onClose,
+  onAssign,
+  onReview,
+}: {
+  drain: DrainRecord;
+  onClose: () => void;
+  onAssign: () => void;
+  onReview: (
+    reportId: string,
+    decision: "verify" | "reject",
+  ) => Promise<void>;
+}) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+  return (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        className="modal-card queue-actions-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="queue-actions-title"
+      >
+        <div className="panel-header">
+          <div>
+            <h2 id="queue-actions-title">Queue actions</h2>
+            <span className="panel-note">{drain.id} · {drain.location}</span>
+          </div>
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="queue-actions-modal-buttons">
+          {drain.directReportPhoto ? (
+            <a
+              className="btn-secondary"
+              href={drain.directReportPhoto}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View report photo
+            </a>
+          ) : null}
+          {drain.directCleaningReport &&
+          drain.directReportReviewStatus === "pending" ? (
+            <>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  onClose();
+                  void onReview(drain.id, "verify");
+                }}
+              >
+                Verify &amp; award
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  onClose();
+                  void onReview(drain.id, "reject");
+                }}
+              >
+                Reject report
+              </button>
+            </>
+          ) : null}
+          <button type="button" className="btn-primary" onClick={onAssign}>
+            Assign crew
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -3354,7 +3401,7 @@ function AssignCrewModal({
     note: string,
   ) => void;
 }) {
-  const [crews, setCrews] = useState(["Crew Alpha"]);
+  const [crews, setCrews] = useState<string[]>([]);
   const [crewSearch, setCrewSearch] = useState("");
   const [deadlineDate, setDeadlineDate] = useState("");
   const [deadlineTime, setDeadlineTime] = useState("08:00");
@@ -3362,8 +3409,17 @@ function AssignCrewModal({
   const [note, setNote] = useState("");
   const minimumDeadlineDate = getTodayInputDate();
   const matchingCrews = crewOptions.filter((crewOption) =>
-    crewOption.name.toLowerCase().includes(crewSearch.trim().toLowerCase()),
+    `${crewOption.name} ${crewOption.label ?? ""}`
+      .toLowerCase()
+      .includes(crewSearch.trim().toLowerCase()),
   );
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
 
   return (
     <div className="modal-backdrop">
@@ -3402,7 +3458,9 @@ function AssignCrewModal({
                       }
                       aria-label={`Remove ${crew}`}
                     >
-                      {crew} <span aria-hidden="true">×</span>
+                      {crewOptions.find((option) => option.name === crew)
+                        ?.label ?? crew}{" "}
+                      <span aria-hidden="true">×</span>
                     </button>
                   ))
                 ) : (
@@ -3429,7 +3487,7 @@ function AssignCrewModal({
                         aria-selected={selected}
                       >
                         <span>
-                          <strong>{crewOption.name}</strong>
+                          <strong>{crewOption.label ?? crewOption.name}</strong>
                           <small>
                             {` · ${crewOption.members.length} ${
                               crewOption.members.length === 1
@@ -3443,7 +3501,11 @@ function AssignCrewModal({
                     );
                   })
                 ) : (
-                  <span className="crew-picker-empty">No matching crews</span>
+                  <span className="crew-picker-empty">
+                    {crewOptions.length
+                      ? "No matching crews"
+                      : "No crews are set up. Create a crew in Crew Management first."}
+                  </span>
                 )}
               </div>
             </div>
@@ -3735,10 +3797,305 @@ function ObservationModal({
   );
 }
 
-function EvidenceReviewPage({
-  drains,
-  onAction,
-}: {
+type FieldEvidenceRecord = {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  location: string;
+  dateKey: string;
+  deadline: string | null;
+  submittedByUid: string;
+  description: string;
+  cleaningOutcome: string | null;
+  photoUrl?: string;
+  photoError?: string;
+  photoPath: string;
+  capturedAt: string;
+  submittedAt: string;
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number | null;
+  address: string | null;
+  reviewStatus: string;
+  reviewNote: string | null;
+};
+
+async function loadFieldEvidence(): Promise<FieldEvidenceRecord[]> {
+  if (!supabase) throw new Error("Supabase is not configured.");
+  const client = supabase;
+  const { data: updateRows, error: updateError } = await client
+    .from("field_work_updates")
+    .select(
+      "id,task_id,submitted_by_uid,description,photo_path,captured_at,submitted_at,latitude,longitude,accuracy_meters,address,cleaning_outcome,review_status,review_note",
+    )
+    .eq("review_status", "pending")
+    .not("cleaning_outcome", "is", null)
+    .order("submitted_at", { ascending: false });
+  if (updateError) {
+    throw new Error(
+      `Could not load field evidence. Apply migration 202610240004_citizen_upload_and_field_evidence_review.sql: ${updateError.message}`,
+    );
+  }
+  if (!updateRows.length) return [];
+
+  const taskIds = [...new Set(updateRows.map((row) => row.task_id))];
+  const { data: taskRows, error: taskError } = await client
+    .from("field_tasks")
+    .select("id,title,location,date_key,work_window_end")
+    .in("id", taskIds);
+  if (taskError) {
+    throw new Error(`Could not load field task details: ${taskError.message}`);
+  }
+  const tasksById = new Map(taskRows.map((task) => [task.id, task]));
+
+  return Promise.all(
+    updateRows.map(async (row) => {
+      const { data: photo, error: photoError } = await client.storage
+        .from("work-photos")
+        .createSignedUrl(row.photo_path, 3600);
+      const task = tasksById.get(row.task_id);
+      return {
+        id: row.id,
+        taskId: row.task_id,
+        taskTitle: task?.title ?? "Assigned field task",
+        location: task?.location ?? "Location not recorded",
+        dateKey: task?.date_key ?? "",
+        deadline: task?.work_window_end ?? null,
+        submittedByUid: row.submitted_by_uid,
+        description: row.description,
+        cleaningOutcome: row.cleaning_outcome,
+        photoUrl: photoError ? undefined : photo?.signedUrl,
+        photoError: photoError?.message,
+        photoPath: row.photo_path,
+        capturedAt: row.captured_at,
+        submittedAt: row.submitted_at,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        accuracyMeters: row.accuracy_meters,
+        address: row.address,
+        reviewStatus: row.review_status,
+        reviewNote: row.review_note,
+      };
+    }),
+  );
+}
+
+function FieldEvidenceQueue() {
+  const [records, setRecords] = useState<FieldEvidenceRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const nextRecords = await loadFieldEvidence();
+        if (active) {
+          setRecords(nextRecords);
+          setError(null);
+        }
+      } catch (loadError) {
+        if (active) setError(String(loadError));
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void refresh();
+    const channel = supabase
+      ?.channel("field-evidence-review-queue")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "field_work_updates",
+        },
+        () => void refresh(),
+      )
+      .subscribe();
+    return () => {
+      active = false;
+      if (channel) void supabase?.removeChannel(channel);
+    };
+  }, []);
+
+  const review = async (
+    record: FieldEvidenceRecord,
+    decision: "accept" | "request_rework" | "flag_location_mismatch",
+  ) => {
+    if (!supabase) {
+      setError("Supabase is not configured.");
+      return;
+    }
+    const labels = {
+      accept: "accept this cleaning evidence and grant 10 credits",
+      request_rework: "request rework for this task",
+      flag_location_mismatch: "flag the photo location for review",
+    };
+    if (!window.confirm(`Are you sure you want to ${labels[decision]}?`)) {
+      return;
+    }
+    setReviewingId(record.id);
+    setError(null);
+    try {
+      const { error: reviewError } = await supabase.rpc(
+        "review_field_work_update",
+        {
+          p_update_id: record.id,
+          p_decision: decision,
+          p_review_note:
+            decision === "accept" ? "Accepted after evidence review." : labels[decision],
+        },
+      );
+      if (reviewError) throw reviewError;
+      setRecords(await loadFieldEvidence());
+    } catch (reviewError) {
+      setError(
+        `Could not review field evidence: ${
+          reviewError instanceof Error ? reviewError.message : String(reviewError)
+        }`,
+      );
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
+  const pending = records;
+  return (
+    <section className="page-stack">
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>Field app cleaning evidence</h2>
+            <span className="panel-note">
+              {pending.length} submission{pending.length === 1 ? "" : "s"} awaiting review
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={loading}
+            onClick={() => {
+              setLoading(true);
+              void loadFieldEvidence()
+                .then((nextRecords) => {
+                  setRecords(nextRecords);
+                  setError(null);
+                })
+                .catch((loadError: unknown) => setError(String(loadError)))
+                .finally(() => setLoading(false));
+            }}
+          >
+            Refresh evidence
+          </button>
+        </div>
+        {error && <p role="alert">{error}</p>}
+        {loading && <p>Loading field evidence…</p>}
+        {!loading && !error && pending.length === 0 && (
+          <p>No field app submissions are waiting for review.</p>
+        )}
+        {pending.map((record) => (
+          <article key={record.id} className="panel evidence-card">
+            <div className="panel-header">
+              <div>
+                <h3>{record.taskTitle}</h3>
+                <span className="panel-note">
+                  {record.taskId} · {record.location}
+                </span>
+              </div>
+              <span className="status-chip warning">Pending Review</span>
+            </div>
+            <div className="evidence-grid">
+              {record.photoUrl ? (
+                <img
+                  className="evidence-image"
+                  src={record.photoUrl}
+                  alt={`Cleaning evidence for ${record.taskTitle}`}
+                />
+              ) : (
+                <p className="panel-note" role="alert">
+                  {record.photoError
+                    ? `Photo unavailable: ${record.photoError}`
+                    : "Photo unavailable"}
+                </p>
+              )}
+              <div className="evidence-meta-list">
+                <div>
+                  <span>Cleaning result</span>
+                  <strong>
+                    {(record.cleaningOutcome ?? "Not specified")
+                      .replaceAll("_", " ")
+                      .replace(/\b\w/g, (character) => character.toUpperCase())}
+                  </strong>
+                </div>
+                <div>
+                  <span>Work notes</span>
+                  <strong>{record.description}</strong>
+                </div>
+                <div>
+                  <span>Photo address</span>
+                  <strong>{record.address ?? "Address unavailable"}</strong>
+                </div>
+                <div>
+                  <span>GPS coordinates</span>
+                  <strong>
+                    {record.latitude.toFixed(6)}, {record.longitude.toFixed(6)}
+                    {record.accuracyMeters == null
+                      ? ""
+                      : ` · ±${record.accuracyMeters.toFixed(1)} m`}
+                  </strong>
+                </div>
+                <div>
+                  <span>Captured / submitted</span>
+                  <strong>
+                    {formatDate(record.capturedAt)} / {formatDate(record.submittedAt)}
+                  </strong>
+                </div>
+                <div>
+                  <span>Deadline</span>
+                  <strong>
+                    {record.deadline
+                      ? formatDate(record.deadline)
+                      : record.dateKey || "Not specified"}
+                  </strong>
+                </div>
+              </div>
+            </div>
+            <div className="button-row">
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={reviewingId === record.id}
+                onClick={() => void review(record, "accept")}
+              >
+                Accept evidence (+10 credits)
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={reviewingId === record.id}
+                onClick={() => void review(record, "request_rework")}
+              >
+                Request rework
+              </button>
+              <button
+                type="button"
+                className="btn-secondary alt"
+                disabled={reviewingId === record.id}
+                onClick={() => void review(record, "flag_location_mismatch")}
+              >
+                Flag location
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EvidenceReviewPage(_props: {
   drains: DrainRecord[];
   onAction: (
     drainId: string,
@@ -3746,144 +4103,9 @@ function EvidenceReviewPage({
     details: string,
   ) => void;
 }) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const selectedEvidenceId = searchParams.get("evidenceId");
-  const reviewQueue = drains.filter(
-    (drain) =>
-      (drain.status === "Pending Review" ||
-        drain.status === "Rework Required") &&
-      !drain.workStatus?.startsWith("Returned to field app"),
-  );
-  const selectedDrain = reviewQueue.find(
-    (drain) => (drain.evidenceId ?? `EVD-${drain.id}`) === selectedEvidenceId,
-  );
-
-  if (!reviewQueue.length) {
-    return (
-      <div className="page-stack">
-        <div className="panel empty-state">
-          <AlertTriangle size={30} />
-          <h2>No evidence review actions pending.</h2>
-          <p>All completion claims are currently clear.</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="page-stack evidence-review-page">
-      {!selectedDrain ? (
-        <div className="panel empty-state evidence-selection-empty">
-          <ShieldCheck size={30} />
-          <h2>Select an evidence record</h2>
-          <p>
-            Choose an evidence ID from the index to view its review details.
-          </p>
-        </div>
-      ) : (
-        [selectedDrain].map((drain) => (
-          <div key={drain.id} className="panel evidence-card">
-            <div className="panel-header">
-              <div>
-                <h2>{drain.evidenceId ?? `EVD-${drain.id}`}</h2>
-                <span className="panel-note">
-                  {drain.id} · {drain.location}
-                </span>
-              </div>
-              <span className={`status-chip ${getStatusColor(drain.status)}`}>
-                {drain.status}
-              </span>
-            </div>
-
-            <div className="evidence-grid">
-              <div className="evidence-image placeholder">Before image</div>
-              <div className="evidence-image placeholder">After image</div>
-            </div>
-
-            <div className="evidence-meta-list">
-              <div>
-                <span>Location</span>
-                <strong>{drain.location}</strong>
-              </div>
-              <div>
-                <span>Submitted timestamp</span>
-                <strong>{formatDate(drain.lastObservation)}</strong>
-              </div>
-              <div>
-                <span>Work notes</span>
-                <strong>{drain.reason}</strong>
-              </div>
-              <div>
-                <span>Evidence status</span>
-                <strong>{drain.evidenceStatus}</strong>
-              </div>
-              <div>
-                <span>Reviewer notes</span>
-                <strong>
-                  Location mismatch review is flagged for checking the field
-                  trace.
-                </strong>
-              </div>
-            </div>
-
-            <div className="button-row">
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => {
-                  const confirmed = window.confirm(
-                    `Accept evidence for ${drain.id}?`,
-                  );
-                  if (confirmed) {
-                    onAction(drain.id, "Accept", "Accepted after review.");
-                    setSearchParams({});
-                  }
-                }}
-              >
-                Accept Evidence
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  const confirmed = window.confirm(
-                    `Request rework for ${drain.evidenceId ?? `EVD-${drain.id}`} and return it to the cleaning queue?`,
-                  );
-                  if (confirmed) {
-                    onAction(
-                      drain.id,
-                      "Request Rework",
-                      "Rework requested because evidence quality is insufficient.",
-                    );
-                    setSearchParams({});
-                  }
-                }}
-              >
-                Request Rework
-              </button>
-              <button
-                type="button"
-                className="btn-secondary alt"
-                onClick={() => {
-                  const confirmed = window.confirm(
-                    `Send ${drain.evidenceId ?? `EVD-${drain.id}`} back to the field app for location clarification?`,
-                  );
-                  if (confirmed) {
-                    onAction(
-                      drain.id,
-                      "Flag Location Mismatch",
-                      "Location mismatch warning: field evidence did not match the assigned drain location.",
-                    );
-                    setSearchParams({});
-                  }
-                }}
-              >
-                Flag Location Mismatch
-              </button>
-            </div>
-          </div>
-        ))
-      )}
+      <FieldEvidenceQueue />
     </div>
   );
 }
@@ -5160,6 +5382,8 @@ function LogsPage({
 function CrewManagementPage({
   workers,
   crews,
+  drains,
+  onRefreshWorkers,
   reports,
   pools,
   allocations,
@@ -5172,6 +5396,8 @@ function CrewManagementPage({
 }: {
   workers: CrewWorker[];
   crews: CrewRecord[];
+  drains: DrainRecord[];
+  onRefreshWorkers: () => Promise<void>;
   reports: ReportRecord[];
   pools: CreditPool[];
   allocations: CreditAllocation[];
@@ -5192,16 +5418,37 @@ function CrewManagementPage({
   const [selectedWard, setSelectedWard] = useState<string | null>(null);
   const [editingWard, setEditingWard] = useState(false);
   const [wardDraft, setWardDraft] = useState<WardAllowance | null>(null);
+  const [refreshingWorkers, setRefreshingWorkers] = useState(false);
+  const [workerRefreshError, setWorkerRefreshError] = useState<string | null>(
+    null,
+  );
   const [newWorker, setNewWorker] = useState({
     name: "",
     id: "",
     email: "",
     role: "Helper",
-    crew: "Crew Alpha",
+    crew: "Unassigned",
     ward: "Ward 12",
     status: "Available" as CrewWorker["status"],
   });
   const workerStatus = (worker: CrewWorker) => worker.status ?? "Active";
+  const assignedTaskCount = (worker: CrewWorker) =>
+    drains.filter((drain) => {
+      const assignedCrews = drain.assignedCrews?.length
+        ? drain.assignedCrews
+        : (drain.assignedCrew
+            ?.split(",")
+            .map((crew) => crew.trim())
+            .filter(Boolean) ?? []);
+      return (
+        assignedCrews.some(
+          (assignment) =>
+            assignment === worker.currentCrew || assignment === worker.id,
+        ) &&
+        (drain.workStatus?.startsWith("Inspection assigned") === true ||
+          drain.workStatus?.startsWith("Cleaning assigned") === true)
+      );
+    }).length;
   const crewNames = crews.map((crew) => crew.name);
   const activeWorkers = workers.filter(
     (worker) => workerStatus(worker) === "Active",
@@ -5302,6 +5549,17 @@ function CrewManagementPage({
     link.click();
     URL.revokeObjectURL(url);
   };
+  const refreshWorkers = async () => {
+    setRefreshingWorkers(true);
+    setWorkerRefreshError(null);
+    try {
+      await onRefreshWorkers();
+    } catch (error) {
+      setWorkerRefreshError(String(error));
+    } finally {
+      setRefreshingWorkers(false);
+    }
+  };
   const saveWorker = () => {
     if (!newWorker.id.trim() || !newWorker.name.trim()) return;
     onAddWorker({
@@ -5320,7 +5578,7 @@ function CrewManagementPage({
       id: "",
       email: "",
       role: "Helper",
-      crew: "Crew Alpha",
+      crew: "Unassigned",
       ward: "Ward 12",
       status: "Available",
     });
@@ -5341,6 +5599,14 @@ function CrewManagementPage({
         <div className="button-row">
           <button
             type="button"
+            className="btn-secondary"
+            onClick={() => void refreshWorkers()}
+            disabled={refreshingWorkers}
+          >
+            {refreshingWorkers ? "Refreshing workers…" : "Refresh workers"}
+          </button>
+          <button
+            type="button"
             className="btn-primary"
             onClick={() => navigate("/crew-management/add-worker")}
           >
@@ -5355,6 +5621,11 @@ function CrewManagementPage({
           </button>
         </div>
       </div>
+      {workerRefreshError ? (
+        <p className="panel-note" role="alert">
+          {workerRefreshError}
+        </p>
+      ) : null}
       <div className="cards-grid three-col crew-stat-grid">
         {[
           ["Total workers connected", workers.length, "teal"],
@@ -5439,6 +5710,7 @@ function CrewManagementPage({
                   setNewWorker({ ...newWorker, crew: event.target.value })
                 }
               >
+                <option value="Unassigned">Unassigned</option>
                 {crewNames.map((crew) => (
                   <option key={crew}>{crew}</option>
                 ))}
@@ -5515,7 +5787,9 @@ function CrewManagementPage({
                   <span>
                     <strong>{worker.id}</strong>
                     <small>
-                      {worker.name} · {worker.currentCrew}
+                      {worker.name} · {worker.currentCrew} ·{" "}
+                      {assignedTaskCount(worker)} assigned task
+                      {assignedTaskCount(worker) === 1 ? "" : "s"}
                     </small>
                   </span>
                   <span className="status-chip bg-slate-100 text-slate-700">
@@ -5549,10 +5823,15 @@ function CrewManagementPage({
                       onAssignWorkers(event.target.value, [selectedWorker.id])
                     }
                   >
+                    <option value="Unassigned">Unassigned</option>
                     {crewNames.map((crew) => (
                       <option key={crew}>{crew}</option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <span>Assigned tasks</span>
+                  <strong>{assignedTaskCount(selectedWorker)}</strong>
                 </div>
                 <div>
                   <span>Ward</span>

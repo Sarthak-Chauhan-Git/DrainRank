@@ -1,4 +1,9 @@
-import type { AppState, DrainRecord, ReportRecord } from "./App";
+import type {
+  AppState,
+  CrewWorker,
+  DrainRecord,
+  ReportRecord,
+} from "./App";
 import { createEmptyData } from "./emptyState";
 import {
   groupReportsByFirstAnchor,
@@ -31,6 +36,7 @@ export async function loadDashboardState(): Promise<AppState> {
     citizenResult,
     fieldTaskResult,
     directReportResult,
+    crewProfileResult,
   ] = await Promise.all([
     client
       .from("dashboard_state")
@@ -54,6 +60,7 @@ export async function loadDashboardState(): Promise<AppState> {
         "report_id,reporter_uid,issue_category,linked_drain_id,is_urgent_flagged,estimated_priority_score,description,ward,location_description,latitude,longitude,accuracy_meters,photo_path,captured_at,review_status,created_at",
       )
       .order("created_at", { ascending: false }),
+    client.rpc("list_active_crew_profiles"),
   ]);
   if (dashboardResult.error) {
     throw new Error(
@@ -73,13 +80,19 @@ export async function loadDashboardState(): Promise<AppState> {
   if (directReportResult.error) {
     throw directCleaningReportsError("load", directReportResult.error);
   }
+  if (crewProfileResult.error) {
+    throw new Error(
+      `Could not load field-app workers: ${crewProfileResult.error.message}. Apply backend/supabase/migrations/202610250004_list_active_crew_profiles.sql.`,
+    );
+  }
 
   const citizenReports = await mapCitizenRows(citizenResult.data);
   const directReports = await mapDirectCleaningRows(directReportResult.data);
+  const profileWorkers = mergeCrewProfiles([], crewProfileResult.data);
   if (!dashboardResult.data) {
     loadedUpdatedAt = null;
     return mergeCitizenWorkflow(
-      createEmptyData(),
+      { ...createEmptyData(), workers: profileWorkers },
       citizenReports,
       fieldTaskResult.data,
       directReports,
@@ -109,6 +122,10 @@ export async function loadDashboardState(): Promise<AppState> {
   const tasksById = new Map(
     fieldTaskResult.data.map((task) => [task.id, task]),
   );
+  const workers = mergeCrewProfiles(
+    state.workers as CrewWorker[],
+    crewProfileResult.data,
+  );
   const withdrawnCitizenReportIds = new Set(
     citizenResult.data
       .filter((report) => report.status.toLowerCase() === "withdrawn")
@@ -132,6 +149,7 @@ export async function loadDashboardState(): Promise<AppState> {
   const hydratedState = await hydrateDashboardImages({
     ...state,
     drains,
+    workers,
     reports: state.reports.filter(
       (report) => !withdrawnCitizenReportIds.has(report.id),
     ),
@@ -142,6 +160,51 @@ export async function loadDashboardState(): Promise<AppState> {
     fieldTaskResult.data,
     directReports,
   );
+}
+
+export async function refreshCrewRoster(
+  existingWorkers: CrewWorker[],
+): Promise<CrewWorker[]> {
+  if (!supabase) throw new Error("Supabase is not configured.");
+  const { data, error } = await supabase.rpc("list_active_crew_profiles");
+  if (error) {
+    throw new Error(
+      `Could not refresh field-app workers: ${error.message}. Apply backend/supabase/migrations/202610250004_list_active_crew_profiles.sql.`,
+    );
+  }
+  return mergeCrewProfiles(existingWorkers, data);
+}
+
+type CrewProfileRow = {
+  id: string;
+  municipal_id: string;
+  full_name: string;
+};
+
+function mergeCrewProfiles(
+  existingWorkers: CrewWorker[],
+  profiles: CrewProfileRow[],
+): CrewWorker[] {
+  const existingById = new Map(
+    existingWorkers.map((worker) => [worker.id, worker]),
+  );
+  const profileIds = new Set(profiles.map((profile) => profile.municipal_id));
+  return [
+    ...profiles.map((profile) => {
+      const existing = existingById.get(profile.municipal_id);
+      return {
+        ...existing,
+        id: profile.municipal_id,
+        name: profile.full_name || profile.municipal_id,
+        currentCrew: existing?.currentCrew ?? "Unassigned",
+        role: existing?.role ?? "Helper",
+        status: existing?.status ?? "Available",
+        loginStatus: existing?.loginStatus ?? "Credentials issued",
+        joinedAt: existing?.joinedAt,
+      };
+    }),
+    ...existingWorkers.filter((worker) => !profileIds.has(worker.id)),
+  ];
 }
 
 async function hydrateDashboardImages(state: AppState): Promise<AppState> {
