@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:drainrank_citizen/main.dart';
 import 'package:drainrank_citizen/models/citizen_report.dart';
+import 'package:drainrank_citizen/services/drainrank_engine.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -148,6 +149,67 @@ void main() {
 
     expect(decoded.status, ReportWorkflowStatus.withdrawn);
   });
+
+  test(
+    'withdrawn reports do not block a new report at the same location',
+    () async {
+      final withdrawnReport = _sampleReport(
+        status: ReportWorkflowStatus.withdrawn,
+      );
+      await DrainRankEngine.cacheReports([
+        withdrawnReport,
+      ], userId: 'test-user');
+
+      final result = await DrainRankEngine.checkSameDeviceRadiusLock(
+        currentLat: withdrawnReport.latitude,
+        currentLng: withdrawnReport.longitude,
+        deviceId: withdrawnReport.deviceId,
+        userId: 'test-user',
+      );
+
+      expect(result.isBlocked, isFalse);
+    },
+  );
+
+  test('active reports still block duplicate submissions', () async {
+    final activeReport = _sampleReport(
+      status: ReportWorkflowStatus.complaintReceived,
+    );
+    await DrainRankEngine.cacheReports([activeReport], userId: 'test-user');
+
+    final result = await DrainRankEngine.checkSameDeviceRadiusLock(
+      currentLat: activeReport.latitude,
+      currentLng: activeReport.longitude,
+      deviceId: activeReport.deviceId,
+      userId: 'test-user',
+    );
+
+    expect(result.isBlocked, isTrue);
+  });
+}
+
+CitizenReport _sampleReport({required ReportWorkflowStatus status}) {
+  final now = DateTime.now();
+  return CitizenReport(
+    reportId: 'REP-TEST',
+    deviceId: 'test-device',
+    linkedDrainId: 'PROVISIONAL-PIN',
+    latitude: 28.6,
+    longitude: 77.2,
+    gpsAccuracyMeters: 5,
+    capturedAt: now,
+    uploadedAt: now,
+    imagePath: '',
+    imageSha256Hash: '',
+    imageQualityPassed: true,
+    imageLuminance: 120,
+    issueCategory: IssueCategory.other,
+    isUrgentFlagged: false,
+    urgencyConsequence: UrgencyConsequence.standardResidential,
+    description: 'Test report',
+    status: status,
+    estimatedPriorityScore: 42,
+  );
 }
 
 Future<void> _setSmallViewport(WidgetTester tester) async {

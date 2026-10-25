@@ -13,17 +13,25 @@ upload report photos to the private `citizen-photos` bucket and insert report
 records in `public.citizen_reports`.
 
 Apply the migrations in `backend/supabase/migrations` before running the app,
-including `202610240003_citizen_report_submission_access.sql`. The policies
+including `202610240003_citizen_report_submission_access.sql` and the later
+owner-folder upload policy in
+`202610240004_citizen_upload_and_field_evidence_review.sql`. The policies
 restrict each citizen to their own reports and photos; dashboard
-administrators can review all reports.
+administrators can review all reports. Migration
+`202610250001_owner_authorized_report_withdrawal.sql` allows an authenticated
+report owner to withdraw an eligible report without relying on a profile-role
+lookup.
 
 Pass the project's URL and publishable key as Dart defines when running or
-building the app. Do not commit credentials or paste them into source files:
+building the app. The local, git-ignored `.env.local.json` provides the same
+Geoapify key used by the field app. Geoapify keys are embedded in mobile builds,
+so restrict the key by API and quota in the Geoapify dashboard:
 
 ```powershell
 flutter run `
   --dart-define=SUPABASE_URL=https://your-project.supabase.co `
-  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key `
+  --dart-define-from-file=.env.local.json
 ```
 
 For a debug APK:
@@ -31,7 +39,8 @@ For a debug APK:
 ```powershell
 flutter build apk --debug `
   --dart-define=SUPABASE_URL=https://your-project.supabase.co `
-  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key `
+  --dart-define-from-file=.env.local.json
 ```
 
 If the Supabase values are missing, the app displays a setup message instead of
@@ -49,10 +58,13 @@ flutter analyze
 flutter test
 ```
 
-Nearby hospital/school verification for high-urgency reports additionally
-requires a Geoapify API key passed as
-`--dart-define=GEOAPIFY_API_KEY=...`. Without it, standard-priority reports
-remain available, but automatic high-urgency verification is unavailable.
+Nearby hospital, school, university, college, police-station, and fire-station
+verification for high-urgency reports uses the Geoapify Places API. After
+capturing a report photo, the report form displays the 500 m search zone and
+any matching nearby facilities below the urgency assessment. Lookup errors
+are shown there with a retry option. Without the key, standard-priority
+reports remain available, but automatic high-urgency verification is
+unavailable.
 
 Reports and photos are submitted to Supabase. The app keeps a local report
 cache so previously loaded records remain visible if a refresh fails; any
@@ -69,6 +81,9 @@ Citizens may withdraw their own reports while they are in Complaint Received
 or Under Verification and have no field work assigned. Withdrawal retains the
 report record with a `withdrawn` status for municipal audit; it does not delete
 the report.
+
+The tracking screen listens for changes to the signed-in citizen's reports and
+refreshes their statuses automatically. Pull-to-refresh remains available.
 
 Apply `backend/supabase/migrations/202610240001_citizen_debug_and_withdrawal.sql`
 after the earlier migrations to enable owner-checked report withdrawal,

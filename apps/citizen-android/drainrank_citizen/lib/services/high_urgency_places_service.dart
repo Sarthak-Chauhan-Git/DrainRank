@@ -4,12 +4,9 @@ import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 
-enum FacilityPriority {
-  high,
-  elevated,
-}
+enum FacilityPriority { high, elevated }
 
-class HighUrgencyPlace {
+class NearbyUrgencyFacility {
   final String name;
   final String type;
   final double latitude;
@@ -17,7 +14,7 @@ class HighUrgencyPlace {
   final FacilityPriority priority;
   final double distanceMeters;
 
-  const HighUrgencyPlace({
+  const NearbyUrgencyFacility({
     required this.name,
     required this.type,
     required this.latitude,
@@ -28,14 +25,11 @@ class HighUrgencyPlace {
 }
 
 class HighUrgencyPlacesService {
-  static const String _apiKey =
-  String.fromEnvironment('GEOAPIFY_API_KEY');
+  static const String _apiKey = String.fromEnvironment('GEOAPIFY_API_KEY');
 
-  static const String _baseUrl =
-      'https://api.geoapify.com/v2/places';
+  static const String _baseUrl = 'https://api.geoapify.com/v2/places';
 
-  static const Duration _requestTimeout =
-  Duration(seconds: 15);
+  static const Duration _requestTimeout = Duration(seconds: 15);
 
   static const double defaultRadiusMeters = 500;
 
@@ -54,7 +48,7 @@ class HighUrgencyPlacesService {
     'fire station',
   };
 
-  Future<List<HighUrgencyPlace>> fetchNearbyPlaces({
+  Future<List<NearbyUrgencyFacility>> fetchNearbyPlaces({
     required double latitude,
     required double longitude,
     double radiusMeters = defaultRadiusMeters,
@@ -65,24 +59,21 @@ class HighUrgencyPlacesService {
         longitude > 180 ||
         radiusMeters <= 0 ||
         radiusMeters > 50000) {
-      throw ArgumentError(
-        'Invalid coordinates or search radius.',
-      );
+      throw ArgumentError('Invalid coordinates or search radius.');
     }
 
     if (_apiKey.isEmpty) {
       throw StateError(
         'Geoapify API key is missing. '
-            'Launch Flutter with '
-            '--dart-define=GEOAPIFY_API_KEY=YOUR_KEY.',
+        'Launch Flutter with '
+        '--dart-define=GEOAPIFY_API_KEY=YOUR_KEY.',
       );
     }
 
     final uri = Uri.parse(_baseUrl).replace(
       queryParameters: {
         'categories': _categoryTypes.keys.join(','),
-        'filter':
-        'circle:$longitude,$latitude,${radiusMeters.round()}',
+        'filter': 'circle:$longitude,$latitude,${radiusMeters.round()}',
         'bias': 'proximity:$longitude,$latitude',
         'limit': '100',
         'apiKey': _apiKey,
@@ -93,24 +84,19 @@ class HighUrgencyPlacesService {
 
     try {
       response = await http
-          .get(
-        uri,
-        headers: const {
-          'Accept': 'application/json',
-        },
-      )
+          .get(uri, headers: const {'Accept': 'application/json'})
           .timeout(_requestTimeout);
     } on TimeoutException {
       throw Exception(
         'Geoapify request timed out. Check your internet '
-            'connection and try again.',
+        'connection and try again.',
       );
     }
 
     if (response.statusCode != 200) {
       throw Exception(
         'Geoapify returned HTTP ${response.statusCode}. '
-            'Check the API key, quota, and request configuration.',
+        'Check the API key, quota, and request configuration.',
       );
     }
 
@@ -119,20 +105,15 @@ class HighUrgencyPlacesService {
     try {
       decoded = jsonDecode(response.body);
     } on FormatException {
-      throw Exception(
-        'Geoapify returned invalid JSON.',
-      );
+      throw Exception('Geoapify returned invalid JSON.');
     }
 
-    if (decoded is! Map<String, dynamic> ||
-        decoded['features'] is! List) {
-      throw const FormatException(
-        'Unexpected Geoapify Places response.',
-      );
+    if (decoded is! Map<String, dynamic> || decoded['features'] is! List) {
+      throw const FormatException('Unexpected Geoapify Places response.');
     }
 
     final features = decoded['features'] as List<dynamic>;
-    final places = <HighUrgencyPlace>[];
+    final places = <NearbyUrgencyFacility>[];
     final seen = <String>{};
 
     for (final feature in features) {
@@ -161,8 +142,7 @@ class HighUrgencyPlacesService {
 
       final coordinates = geometry['coordinates'];
 
-      if (coordinates is! List ||
-          coordinates.length < 2) {
+      if (coordinates is! List || coordinates.length < 2) {
         continue;
       }
 
@@ -194,29 +174,26 @@ class HighUrgencyPlacesService {
 
       final rawName = properties['name']?.toString().trim();
 
-      final name =
-      rawName == null || rawName.isEmpty
+      final name = rawName == null || rawName.isEmpty
           ? 'Unnamed $matchedType'
           : rawName;
 
       final placeId = properties['place_id']?.toString();
 
-      final deduplicationKey =
-      placeId != null && placeId.isNotEmpty
+      final deduplicationKey = placeId != null && placeId.isNotEmpty
           ? placeId
           : '${matchedType}_'
-          '${placeLatitude.toStringAsFixed(6)}_'
-          '${placeLongitude.toStringAsFixed(6)}';
+                '${placeLatitude.toStringAsFixed(6)}_'
+                '${placeLongitude.toStringAsFixed(6)}';
 
       if (!seen.add(deduplicationKey)) continue;
 
-      final priority =
-      _highPriorityTypes.contains(matchedType)
+      final priority = _highPriorityTypes.contains(matchedType)
           ? FacilityPriority.high
           : FacilityPriority.elevated;
 
       places.add(
-        HighUrgencyPlace(
+        NearbyUrgencyFacility(
           name: name,
           type: matchedType,
           latitude: placeLatitude,
@@ -228,11 +205,7 @@ class HighUrgencyPlacesService {
     }
 
     // Nearest facilities appear first.
-    places.sort(
-          (a, b) => a.distanceMeters.compareTo(
-        b.distanceMeters,
-      ),
-    );
+    places.sort((a, b) => a.distanceMeters.compareTo(b.distanceMeters));
 
     return places;
   }
@@ -240,7 +213,7 @@ class HighUrgencyPlacesService {
   bool isWithinUrgencyRadius({
     required double reportLatitude,
     required double reportLongitude,
-    required HighUrgencyPlace place,
+    required NearbyUrgencyFacility place,
     double radiusMeters = defaultRadiusMeters,
   }) {
     final distance = Geolocator.distanceBetween(

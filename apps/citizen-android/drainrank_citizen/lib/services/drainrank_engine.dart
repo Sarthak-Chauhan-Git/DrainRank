@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math';
+
 import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:geolocator/geolocator.dart';
@@ -138,6 +139,7 @@ class DrainRankEngine {
     final now = DateTime.now();
 
     for (final report in existingReports) {
+      if (report.status == ReportWorkflowStatus.withdrawn) continue;
       final hoursSinceReport = now.difference(report.capturedAt).inHours;
       if (report.deviceId == deviceId &&
           hoursSinceReport < AppConstants.sameDeviceCooldownHours) {

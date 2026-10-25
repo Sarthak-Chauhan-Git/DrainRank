@@ -44,166 +44,176 @@ class _CredentialRow extends StatelessWidget {
   );
 }
 
+class _CreateCrewAccountDialog extends StatefulWidget {
+  const _CreateCrewAccountDialog();
+
+  @override
+  State<_CreateCrewAccountDialog> createState() =>
+      _CreateCrewAccountDialogState();
+}
+
+class _CreateCrewAccountDialogState extends State<_CreateCrewAccountDialog> {
+  final _municipalIdController = TextEditingController();
+  final _fullNameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  String? _validationError;
+  bool _hidePassword = true;
+
+  @override
+  void dispose() {
+    _municipalIdController.dispose();
+    _fullNameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  void _createAccount() {
+    final id = _municipalIdController.text.trim().toUpperCase();
+    final name = _fullNameController.text.trim();
+    final secret = _passwordController.text;
+    if (!RegExp(r'^[A-Z0-9-]{3,30}$').hasMatch(id)) {
+      setState(
+        () => _validationError =
+            'Use 3–30 letters, numbers, or hyphens for the ID.',
+      );
+    } else if (name.length < 2 || name.length > 100) {
+      setState(() => _validationError = 'Enter a valid full name.');
+    } else if (secret.length < 8) {
+      setState(
+        () => _validationError = 'Password must be at least 8 characters.',
+      );
+    } else {
+      Navigator.pop(context, {
+        'municipalId': id,
+        'fullName': name,
+        'password': secret,
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+    insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 480),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F8F1),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(
+                Icons.person_add_alt_1_rounded,
+                color: Color(0xFF0F766E),
+                size: 28,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Add crew member',
+              style: Theme.of(context).textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Create a secure sign-in for a municipal field worker. '
+              'Their credentials will be shown once after creation.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: _municipalIdController,
+              textCapitalization: TextCapitalization.characters,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Municipal ID',
+                hintText: 'For example, CREW-1024',
+                prefixIcon: Icon(Icons.badge_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _fullNameController,
+              textCapitalization: TextCapitalization.words,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Full name',
+                prefixIcon: Icon(Icons.person_outline_rounded),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _passwordController,
+              obscureText: _hidePassword,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _createAccount(),
+              decoration: InputDecoration(
+                labelText: 'Temporary password',
+                helperText: 'Must be at least 8 characters.',
+                prefixIcon: const Icon(Icons.lock_outline_rounded),
+                suffixIcon: IconButton(
+                  tooltip: _hidePassword ? 'Show password' : 'Hide password',
+                  onPressed: () =>
+                      setState(() => _hidePassword = !_hidePassword),
+                  icon: Icon(
+                    _hidePassword
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                  ),
+                ),
+              ),
+            ),
+            if (_validationError != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _validationError!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+            const SizedBox(height: 22),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _createAccount,
+                    icon: const Icon(Icons.person_add_alt_1),
+                    label: const Text('Create account'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class AdminDashboardPage extends StatelessWidget {
   const AdminDashboardPage({super.key});
 
   Future<void> _logout() => fieldBackend.auth.signOut();
 
   Future<void> _createCrewAccount(BuildContext context) async {
-    final municipalId = TextEditingController();
-    final fullName = TextEditingController();
-    final password = TextEditingController();
-    String? validationError;
-    bool hidePassword = true;
     final account = await showDialog<Map<String, String>>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => Dialog(
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 24,
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    width: 52,
-                    height: 52,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE8F8F1),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Icon(
-                      Icons.person_add_alt_1_rounded,
-                      color: Color(0xFF0F766E),
-                      size: 28,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    'Add crew member',
-                    style: Theme.of(context).textTheme.headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Create a secure sign-in for a municipal field worker. '
-                    'Their credentials will be shown once after creation.',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: municipalId,
-                    textCapitalization: TextCapitalization.characters,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Municipal ID',
-                      hintText: 'For example, CREW-1024',
-                      prefixIcon: Icon(Icons.badge_outlined),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: fullName,
-                    textCapitalization: TextCapitalization.words,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Full name',
-                      prefixIcon: Icon(Icons.person_outline_rounded),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: password,
-                    obscureText: hidePassword,
-                    textInputAction: TextInputAction.done,
-                    decoration: InputDecoration(
-                      labelText: 'Temporary password',
-                      helperText: 'Must be at least 8 characters.',
-                      prefixIcon: const Icon(Icons.lock_outline_rounded),
-                      suffixIcon: IconButton(
-                        tooltip: hidePassword
-                            ? 'Show password'
-                            : 'Hide password',
-                        onPressed: () =>
-                            setDialogState(() => hidePassword = !hidePassword),
-                        icon: Icon(
-                          hidePassword
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (validationError != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      validationError!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 22),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(dialogContext),
-                          child: const Text('Cancel'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () {
-                            final id = municipalId.text.trim().toUpperCase();
-                            final name = fullName.text.trim();
-                            final secret = password.text;
-                            if (!RegExp(r'^[A-Z0-9-]{3,30}$').hasMatch(id)) {
-                              setDialogState(
-                                () => validationError = 'Use 3–30 letters, numbers, or hyphens for the ID.',
-                              );
-                            } else if (name.length < 2 || name.length > 100) {
-                              setDialogState(
-                                () => validationError =
-                                    'Enter a valid full name.',
-                              );
-                            } else if (secret.length < 8) {
-                              setDialogState(
-                                () => validationError =
-                                    'Password must be at least 8 characters.',
-                              );
-                            } else {
-                              Navigator.pop(dialogContext, {
-                                'municipalId': id,
-                                'fullName': name,
-                                'password': secret,
-                              });
-                            }
-                          },
-                          icon: const Icon(Icons.person_add_alt_1),
-                          label: const Text('Create account'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+      builder: (_) => const _CreateCrewAccountDialog(),
     );
-    municipalId.dispose();
-    fullName.dispose();
-    password.dispose();
     if (account == null || !context.mounted) return;
 
     try {

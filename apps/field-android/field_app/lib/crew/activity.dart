@@ -21,23 +21,25 @@ class _ActivitySubmissionInfo {
     required this.submitted,
     required this.submittedOverdue,
     this.submittedAt,
+    this.reviewStatus,
   });
 
   final bool submitted;
   final bool submittedOverdue;
   final DateTime? submittedAt;
+  final String? reviewStatus;
 }
 
 class _CrewActivityPageState extends State<CrewActivityPage> {
   int _months = 1;
   late final Stream<List<FieldTaskRecord>> _assignedTasks;
-  Future<List<_ActivitySubmissionInfo>>? _submissionFuture;
-  String? _submissionKey;
+  late final Stream<List<Map<String, dynamic>>> _workUpdates;
 
   @override
   void initState() {
     super.initState();
     _assignedTasks = fieldTasksStream();
+    _workUpdates = fieldWorkUpdatesStream();
   }
 
   DateTime _earliestDay(DateTime today) {
@@ -56,32 +58,6 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
     final key = task['dateKey'];
     if (key is String) return DateTime.tryParse(key);
     return null;
-  }
-
-  Future<List<_ActivitySubmissionInfo>> _loadSubmissions(
-    List<FieldTaskRecord> docs,
-  ) async {
-    return Future.wait(
-      docs.map((doc) async {
-        final result = await fieldBackend
-            .from('field_work_updates')
-            .select('submitted_at,submitted_overdue')
-            .eq('task_id', doc.id)
-            .eq('submitted_by_uid', widget.currentUserUid);
-        final overdueDocs = result
-            .where((update) => update['submitted_overdue'] == true)
-            .toList();
-        final chosen = overdueDocs.isNotEmpty
-            ? overdueDocs.first
-            : (result.isNotEmpty ? result.first : null);
-        final submittedAtRaw = chosen?['submitted_at'];
-        return _ActivitySubmissionInfo(
-          submitted: result.isNotEmpty,
-          submittedOverdue: overdueDocs.isNotEmpty,
-          submittedAt: fieldDateTime(submittedAtRaw),
-        );
-      }),
-    );
   }
 
   String _taskTime(Map<String, dynamic> task) {
@@ -175,42 +151,70 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
               if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
-              final docs = snapshot.data!.where((doc) {
-                final day = _taskDay(doc.data());
-                return day != null &&
-                    !day.isBefore(earliest) &&
-                    !day.isAfter(todayOnly);
-              }).toList();
-              docs.sort((a, b) {
-                final byDay = _taskDay(b.data())!
-                    .compareTo(_taskDay(a.data())!);
-                if (byDay != 0) return byDay;
-                return _taskTime(b.data()).compareTo(_taskTime(a.data()));
-              });
-
-              // Reuse the result while rebuilding; reload when the task set or
-              // filter changes. Opening this page again also makes a fresh query.
-              final key = '$_months:${docs.map((d) => d.id).join('|')}';
-              if (_submissionFuture == null || _submissionKey != key) {
-                _submissionKey = key;
-                _submissionFuture = _loadSubmissions(docs);
-              }
-              return FutureBuilder<List<_ActivitySubmissionInfo>>(
-                future: _submissionFuture,
-                builder: (context, updates) {
-                  if (updates.hasError) {
+              return StreamBuilder<List<Map<String, dynamic>>>(
+                stream: _workUpdates,
+                builder: (context, updatesSnapshot) {
+                  if (updatesSnapshot.hasError) {
                     return Center(
                       child: Padding(
                         padding: const EdgeInsets.all(24),
                         child: Text(
                           'Unable to read personal work updates: '
-                          '${updates.error}',
+                          '${updatesSnapshot.error}',
                           textAlign: TextAlign.center,
                         ),
                       ),
                     );
                   }
-                  final flags = updates.data;
+                  if (!updatesSnapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final updatesByTask = <String, _ActivitySubmissionInfo>{
+                    for (final update in updatesSnapshot.data!)
+                      if (update['submittedByUid'] == widget.currentUserUid &&
+                          update['taskId'] is String)
+                        update['taskId'] as String: _ActivitySubmissionInfo(
+                          submitted: true,
+                          submittedOverdue: update['submittedOverdue'] == true,
+                          submittedAt: fieldDateTime(update['submittedAt']),
+                          reviewStatus: update['review_status'] as String?,
+                        ),
+                  };
+                  final docs = snapshot.data!.where((doc) {
+                    final day = _taskDay(doc.data());
+                    final submission = updatesByTask[doc.id];
+                    final submittedDay = submission?.submittedAt;
+                    final taskInRange =
+                        day != null &&
+                        !day.isBefore(earliest) &&
+                        !day.isAfter(todayOnly);
+                    final submissionInRange =
+                        submittedDay != null &&
+                        !submittedDay.isBefore(earliest) &&
+                        !submittedDay.isAfter(DateTime.now());
+                    return taskInRange || submissionInRange;
+                  }).toList();
+                  docs.sort((a, b) {
+                    final aSubmission = updatesByTask[a.id]?.submittedAt;
+                    final bSubmission = updatesByTask[b.id]?.submittedAt;
+                    final aDay =
+                        aSubmission ?? _taskDay(a.data()) ?? DateTime(1970);
+                    final bDay =
+                        bSubmission ?? _taskDay(b.data()) ?? DateTime(1970);
+                    final byDay = bDay.compareTo(aDay);
+                    if (byDay != 0) return byDay;
+                    return _taskTime(b.data()).compareTo(_taskTime(a.data()));
+                  });
+                  final flags = docs
+                      .map(
+                        (doc) =>
+                            updatesByTask[doc.id] ??
+                            const _ActivitySubmissionInfo(
+                              submitted: false,
+                              submittedOverdue: false,
+                            ),
+                      )
+                      .toList();
                   return Column(
                     children: [
                       Padding(
@@ -280,7 +284,7 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                               children: [
                                 Expanded(
                                   child: _ActivitySummaryCard(
-                                    label: 'Tasks assigned',
+                                    label: 'Tasks & submissions',
                                     count: docs.length,
                                     icon: Icons.assignment_outlined,
                                   ),
@@ -289,11 +293,9 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                                 Expanded(
                                   child: _ActivitySummaryCard(
                                     label: 'Submitted',
-                                    count: flags == null
-                                        ? null
-                                        : flags
-                                              .where((value) => value.submitted)
-                                              .length,
+                                    count: flags
+                                        .where((value) => value.submitted)
+                                        .length,
                                     icon: Icons.task_alt,
                                   ),
                                 ),
@@ -312,11 +314,7 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                           ],
                         ),
                       ),
-                      if (flags == null)
-                        const Expanded(
-                          child: Center(child: CircularProgressIndicator()),
-                        )
-                      else if (docs.isEmpty)
+                      if (docs.isEmpty)
                         const Expanded(
                           child: Center(
                             child: Text('No assigned tasks in this period.'),
@@ -330,14 +328,12 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                             itemBuilder: (context, index) {
                               final doc = docs[index];
                               final task = doc.data();
-                              final day = _taskDay(task)!;
                               final submission = flags[index];
+                              final day =
+                                  submission.submittedAt ??
+                                  _taskDay(task) ??
+                                  DateTime(1970);
                               final submitted = submission.submitted;
-                              final isPastDate = DateTime(
-                                day.year,
-                                day.month,
-                                day.day,
-                              ).isBefore(todayOnly);
                               final hasAward = positiveAwardTasks.contains(
                                 doc.id,
                               );
@@ -430,16 +426,29 @@ class _CrewActivityPageState extends State<CrewActivityPage> {
                                           'Shared status: ${task['status'] ?? 'Pending'}',
                                           style: statusTextStyle,
                                         ),
-                                        // Omit the redundant personal-update status for
-                                        // past dates. On today's task use the same font as
-                                        // the shared status for consistency.
-                                        if (!isPastDate)
-                                          Text(
-                                            submitted
-                                                ? 'Your work update: Submitted'
-                                                : 'Your work update: Pending',
-                                            style: statusTextStyle,
+                                        Text(
+                                          submitted
+                                              ? 'Your work update: ${switch (submission.reviewStatus) {
+                                                  'accepted' => 'Evidence accepted',
+                                                  'pending' => 'Evidence pending review',
+                                                  'rework_requested' => 'Rework requested',
+                                                  'location_mismatch' => 'Location clarification requested',
+                                                  _ => 'Submitted',
+                                                }}'
+                                              : 'Your work update: Pending',
+                                          style: statusTextStyle?.copyWith(
+                                            color:
+                                                submission.reviewStatus ==
+                                                    'accepted'
+                                                ? const Color(0xFF059669)
+                                                : null,
+                                            fontWeight:
+                                                submission.reviewStatus ==
+                                                    'accepted'
+                                                ? FontWeight.w700
+                                                : null,
                                           ),
+                                        ),
                                         const SizedBox(height: 10),
                                         Row(
                                           crossAxisAlignment:

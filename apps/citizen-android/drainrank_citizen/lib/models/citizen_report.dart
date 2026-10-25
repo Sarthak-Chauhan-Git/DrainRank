@@ -78,7 +78,7 @@ enum UrgencyConsequence {
   });
 }
 
-// Exact 5 statuses from Step 8 of the DrainRank End-to-End Workflow Poster
+// Main workflow steps and terminal report states.
 enum ReportWorkflowStatus {
   complaintReceived(
     stepIndex: 0,
@@ -104,6 +104,16 @@ enum ReportWorkflowStatus {
     stepIndex: 4,
     title: 'Under Monitoring',
     subtitle: 'Awaiting post-rain outcome evaluation.',
+  ),
+  resolved(
+    stepIndex: -1,
+    title: 'Resolved',
+    subtitle: 'The municipal authority has resolved this report.',
+  ),
+  duplicate(
+    stepIndex: -1,
+    title: 'Marked as Duplicate',
+    subtitle: 'The municipality linked this report to an existing issue.',
   ),
   withdrawn(
     stepIndex: -1,
@@ -168,6 +178,30 @@ class CitizenReport {
     required this.status,
     required this.estimatedPriorityScore,
   });
+
+  CitizenReport copyWith({ReportWorkflowStatus? status}) => CitizenReport(
+    reportId: reportId,
+    deviceId: deviceId,
+    linkedDrainId: linkedDrainId,
+    latitude: latitude,
+    longitude: longitude,
+    gpsAccuracyMeters: gpsAccuracyMeters,
+    capturedAt: capturedAt,
+    uploadedAt: uploadedAt,
+    imagePath: imagePath,
+    imageUrl: imageUrl,
+    imageSha256Hash: imageSha256Hash,
+    imageQualityPassed: imageQualityPassed,
+    imageLuminance: imageLuminance,
+    issueCategory: issueCategory,
+    aiSuggestedCategory: aiSuggestedCategory,
+    aiConfidence: aiConfidence,
+    isUrgentFlagged: isUrgentFlagged,
+    urgencyConsequence: urgencyConsequence,
+    description: description,
+    status: status ?? this.status,
+    estimatedPriorityScore: estimatedPriorityScore,
+  );
 
   Map<String, dynamic> toJson() => {
     'report_id': reportId,

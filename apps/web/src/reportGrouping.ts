@@ -58,6 +58,39 @@ export function priorityWithReportVolume(priorities: readonly number[]): number 
   );
 }
 
+export function shouldReopenCitizenReportGroup(
+  newReportArrived: boolean,
+  previousStatus: string | undefined,
+): boolean {
+  return (
+    newReportArrived &&
+    (previousStatus === "Cleaning Recommended" ||
+      previousStatus === "Monitoring" ||
+      previousStatus === "Reviewed" ||
+      previousStatus === "Resolved")
+  );
+}
+
+export function citizenCleaningTaskId(drainId: string): string {
+  return `CLN-${drainId}`;
+}
+
+export function fieldTaskIdForDrain(drain: {
+  id: string;
+  citizenReportGroup?: boolean;
+  fieldTaskId?: string;
+  workStatus?: string;
+}): string {
+  if (drain.fieldTaskId) return drain.fieldTaskId;
+  if (
+    drain.citizenReportGroup &&
+    drain.workStatus?.startsWith("Cleaning assigned")
+  ) {
+    return citizenCleaningTaskId(drain.id);
+  }
+  return drain.id;
+}
+
 function distanceInMeters(
   latitudeA: number,
   longitudeA: number,

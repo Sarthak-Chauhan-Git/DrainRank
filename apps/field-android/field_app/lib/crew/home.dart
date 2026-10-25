@@ -21,6 +21,10 @@ class _CrewHomePageState extends State<CrewHomePage> {
   int _selectedRange = 1;
   bool _debugModeEnabled = false;
   late Stream<List<FieldTaskRecord>> _tasksStream;
+  StreamSubscription<List<Map<String, dynamic>>>? _workUpdatesSubscription;
+  Map<String, Map<String, dynamic>> _workUpdatesByTask = {};
+  bool _loadingWorkUpdates = true;
+  String? _workUpdatesError;
   static const _avatarColors = [
     Color(0xFF0F766E),
     Color(0xFF2563EB),
@@ -34,13 +38,66 @@ class _CrewHomePageState extends State<CrewHomePage> {
   void initState() {
     super.initState();
     _openTaskStream();
+    _openWorkUpdatesStream();
   }
 
   void _openTaskStream() {
     _tasksStream = fieldTasksStream();
   }
 
+  void _openWorkUpdatesStream() {
+    final previousSubscription = _workUpdatesSubscription;
+    if (previousSubscription != null) {
+      unawaited(previousSubscription.cancel());
+    }
+    _loadingWorkUpdates = true;
+    _workUpdatesError = null;
+    _workUpdatesSubscription = fieldWorkUpdatesStream().listen(
+      (updates) {
+        if (!mounted) return;
+        setState(() {
+          _workUpdatesByTask = {
+            for (final update in updates)
+              if (update['submittedByUid'] == widget.user.uid &&
+                  update['taskId'] is String)
+                update['taskId'] as String: update,
+          };
+          _loadingWorkUpdates = false;
+          _workUpdatesError = null;
+        });
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        debugPrint('Work evidence loading error: $error\n$stackTrace');
+        if (!mounted) return;
+        setState(() {
+          _loadingWorkUpdates = false;
+          _workUpdatesError = 'Unable to load submitted work evidence.';
+        });
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    final subscription = _workUpdatesSubscription;
+    if (subscription != null) {
+      unawaited(subscription.cancel());
+    }
+    super.dispose();
+  }
+
   DateTime _dayOnly(DateTime date) => DateTime(date.year, date.month, date.day);
+
+  DateTime? _taskDisplayDate(FieldTaskRecord task) {
+    final update = _workUpdatesByTask[task.id];
+    if (_selectedRange == 0 &&
+        update != null &&
+        update['review_status'] != 'rework_requested') {
+      final submittedAt = fieldDateTime(update['submittedAt']);
+      if (submittedAt != null) return _dayOnly(submittedAt.toLocal());
+    }
+    return _parseTaskDate(task.data()['dateKey']);
+  }
 
   String get _crewName {
     final name =
@@ -84,11 +141,8 @@ class _CrewHomePageState extends State<CrewHomePage> {
 
   List<DateTime> _visibleDays() {
     final today = _dayOnly(DateTime.now());
-    if (_selectedRange == 1) return [today];
-    if (_selectedRange == 0) {
-      return List.generate(7, (i) => today.subtract(Duration(days: 7 - i)));
-    }
-    return List.generate(7, (i) => today.add(Duration(days: i + 1)));
+    if (_selectedRange == 1) return [];
+    return List.generate(7, (i) => today.subtract(Duration(days: 6 - i)));
   }
 
   // Handles both '08:00 AM' and '13:00' time strings for chronological sorting.
@@ -111,9 +165,36 @@ class _CrewHomePageState extends State<CrewHomePage> {
     return hour * 60 + minute;
   }
 
-  void _refreshTasks() {
-    setState(_openTaskStream);
-    showAppMessage(context, 'Refreshing assigned tasks...');
+  Future<void> _refreshTasks() async {
+    try {
+      await Future.wait([
+        fieldBackend.from('field_tasks').select('id').limit(1),
+        fieldBackend
+            .from('field_work_updates')
+            .select('id')
+            .eq('submitted_by_uid', widget.user.uid)
+            .limit(1),
+        fieldBackend
+            .from('credit_awards')
+            .select('id')
+            .eq('user_id', widget.user.uid)
+            .limit(1),
+        fieldBackend
+            .from('direct_cleaning_report_credits')
+            .select('report_id')
+            .eq('user_id', widget.user.uid)
+            .limit(1),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _openTaskStream();
+        _openWorkUpdatesStream();
+      });
+    } catch (error) {
+      if (mounted) {
+        showAppMessage(context, 'Could not refresh tasks and credits: $error');
+      }
+    }
   }
 
   void _showDetails(String title, Widget content) {
@@ -168,9 +249,8 @@ class _CrewHomePageState extends State<CrewHomePage> {
     final visibleDays = _visibleDays();
     final visibleKeys = visibleDays.map(_dateKey).toSet();
     final heading = switch (_selectedRange) {
-      0 => 'Past 7 Days',
-      1 => 'Today',
-      _ => 'Next 7 Days',
+      0 => 'Last week',
+      _ => 'Active tasks',
     };
 
     return Scaffold(
@@ -260,6 +340,34 @@ class _CrewHomePageState extends State<CrewHomePage> {
           StreamBuilder<List<FieldTaskRecord>>(
             stream: _tasksStream,
             builder: (context, snapshot) {
+              if (_loadingWorkUpdates) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (_workUpdatesError != null) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.cloud_off_outlined, size: 44),
+                        const SizedBox(height: 12),
+                        const Text('Unable to load submitted work evidence'),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Active tasks cannot be updated until evidence status is available.',
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        OutlinedButton(
+                          onPressed: _refreshTasks,
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
@@ -292,12 +400,36 @@ class _CrewHomePageState extends State<CrewHomePage> {
               }
 
               final allAssignedTasks = snapshot.data ?? [];
-              final filtered = allAssignedTasks
-                  .where((doc) => visibleKeys.contains(doc.data()['dateKey']))
-                  .toList();
+              final filtered = allAssignedTasks.where((doc) {
+                final task = doc.data();
+                final update = _workUpdatesByTask[doc.id];
+                final day = _taskDisplayDate(doc);
+                if (day == null) return false;
+                if (_selectedRange == 0) {
+                  return visibleKeys.contains(_dateKey(day));
+                }
+                final status = (task['status'] ?? 'Pending')
+                    .toString()
+                    .toLowerCase();
+                return status != 'completed' &&
+                    status != 'cancelled' &&
+                    status != 'canceled' &&
+                    (update == null ||
+                        update['review_status'] == 'rework_requested' ||
+                        update['review_status'] == 'location_mismatch');
+              }).toList();
+              filtered.sort((a, b) {
+                final dayA = _taskDisplayDate(a)!;
+                final dayB = _taskDisplayDate(b)!;
+                final byDay = dayA.compareTo(dayB);
+                if (byDay != 0) return byDay;
+                return _timeInMinutes(
+                  a.data()['startTime']?.toString(),
+                ).compareTo(_timeInMinutes(b.data()['startTime']?.toString()));
+              });
               final byDate = <String, List<FieldTaskRecord>>{};
               for (final doc in filtered) {
-                final dateKey = doc.data()['dateKey'] as String;
+                final dateKey = _dateKey(_taskDisplayDate(doc)!);
                 byDate.putIfAbsent(dateKey, () => []).add(doc);
               }
               for (final tasks in byDate.values) {
@@ -309,220 +441,171 @@ class _CrewHomePageState extends State<CrewHomePage> {
                 );
               }
 
-              // The Today tab also includes earlier assignments for which this
-              // crew member has not submitted any work update yet.
-              final overdueTasks = _selectedRange == 1
-                  ? allAssignedTasks.where((doc) {
-                      final day = _parseTaskDate(doc.data()['dateKey']);
-                      return day != null && day.isBefore(_todayOnly());
-                    }).toList()
-                  : <FieldTaskRecord>[];
-              overdueTasks.sort((a, b) {
-                final dayA = _parseTaskDate(a.data()['dateKey'])!;
-                final dayB = _parseTaskDate(b.data()['dateKey'])!;
-                final byDay = dayA.compareTo(dayB); // oldest overdue task first
-                if (byDay != 0) return byDay;
-                return _timeInMinutes(
-                  a.data()['startTime']?.toString(),
-                ).compareTo(_timeInMinutes(b.data()['startTime']?.toString()));
-              });
+              final displayDays =
+                  _selectedRange == 0
+                        ? visibleDays
+                        : byDate.keys
+                              .map(_parseTaskDate)
+                              .whereType<DateTime>()
+                              .toList()
+                    ..sort((a, b) => a.compareTo(b));
 
-              return ListView(
-                padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-                children: [
-                  Text(
-                    'Welcome back,',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  Text(
-                    _crewName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 14),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 42,
-                            height: 42,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFF7E6),
-                              borderRadius: BorderRadius.circular(13),
-                            ),
-                            child: const Icon(
-                              Icons.workspace_premium_outlined,
-                              color: Color(0xFFB7791F),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Your contribution',
-                                  style: TextStyle(
-                                    color: Color(0xFF64748B),
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                CrewCredits(
-                                  uid: widget.user.uid,
-                                  compact: true,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+              return RefreshIndicator(
+                onRefresh: _refreshTasks,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+                  children: [
+                    Text(
+                      'Welcome back,',
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
-                  ),
-                  const SizedBox(height: 22),
-                  Text(
-                    'My schedule',
-                    style: Theme.of(context).textTheme.titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 12),
-                  _TaskRangeSelector(
-                    selectedIndex: _selectedRange,
-                    onSelected: (index) =>
-                        setState(() => _selectedRange = index),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    heading,
-                    style: Theme.of(context).textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    _selectedRange == 1
-                        ? _prettyDate(visibleDays.first)
-                        : '${_prettyDate(visibleDays.first)} – ${_prettyDate(visibleDays.last)}',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  if (filtered.isEmpty && _selectedRange != 1)
+                    Text(
+                      _crewName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 14),
                     Card(
                       child: Padding(
-                        padding: const EdgeInsets.all(28),
-                        child: Column(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                        child: Row(
                           children: [
-                            const Icon(Icons.event_busy_outlined, size: 42),
-                            const SizedBox(height: 12),
-                            Text(
-                              'No tasks assigned for $heading',
-                              textAlign: TextAlign.center,
+                            Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7E6),
+                                borderRadius: BorderRadius.circular(13),
+                              ),
+                              child: const Icon(
+                                Icons.workspace_premium_outlined,
+                                color: Color(0xFFB7791F),
+                              ),
                             ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'New assignments will appear here automatically.',
-                              textAlign: TextAlign.center,
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Your contribution',
+                                    style: TextStyle(
+                                      color: Color(0xFF64748B),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  CrewCredits(
+                                    uid: widget.user.uid,
+                                    compact: true,
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
                       ),
                     ),
-                  if (filtered.isEmpty && _selectedRange == 1)
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(20),
-                        child: Text(
-                          'No tasks assigned for today.',
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
+                    const SizedBox(height: 22),
+                    Text(
+                      'My schedule',
+                      style: Theme.of(context).textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.w800),
                     ),
-                  for (final date in visibleDays)
-                    if (byDate[_dateKey(date)]?.isNotEmpty == true) ...[
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(4, 12, 4, 10),
-                        child: Text(
-                          _prettyDate(date),
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      for (var i = 0; i < byDate[_dateKey(date)]!.length; i++)
-                        _DrainTaskCard(
-                          data: byDate[_dateKey(date)]![i].data(),
-                          number: i + 1,
-                          taskId: byDate[_dateKey(date)]![i].id,
-                          currentUserUid: widget.user.uid,
-                          showCredits: true,
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => TaskDetailsPage(
-                                taskId: byDate[_dateKey(date)]![i].id,
-                                currentUserUid: widget.user.uid,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  if (_selectedRange == 1) ...[
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(4, 18, 4, 10),
-                      child: Text(
-                        'Overdue Tasks',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                    const SizedBox(height: 12),
+                    _TaskRangeSelector(
+                      selectedIndex: _selectedRange,
+                      onSelected: (index) =>
+                          setState(() => _selectedRange = index),
                     ),
-                    if (overdueTasks.isEmpty)
+                    const SizedBox(height: 16),
+                    if (_selectedRange == 1)
                       const Padding(
                         padding: EdgeInsets.only(bottom: 12),
                         child: Text(
-                          'No overdue tasks.',
-                          textAlign: TextAlign.center,
+                          'Assigned work awaiting your evidence or returned for rework.',
                         ),
                       ),
-                    for (final overdueTask in overdueTasks)
-                      StreamBuilder<List<Map<String, dynamic>>>(
-                        stream: fieldWorkUpdatesStream(),
-                        builder: (context, workSnapshot) {
-                          // Hide overdue work once this member has submitted it.
-                          if (!workSnapshot.hasData ||
-                              workSnapshot.hasError ||
-                              workSnapshot.data!.any(
-                                (row) =>
-                                    row['taskId'] == overdueTask.id &&
-                                    row['submittedByUid'] == widget.user.uid,
-                              )) {
-                            return const SizedBox.shrink();
-                          }
-                          return _DrainTaskCard(
-                            data: overdueTask.data(),
-                            number: 0,
-                            taskId: overdueTask.id,
+                    Text(
+                      heading,
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 3),
+                    if (_selectedRange == 0)
+                      Text(
+                        '${_prettyDate(visibleDays.first)} – ${_prettyDate(visibleDays.last)}',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    const SizedBox(height: 12),
+                    if (filtered.isEmpty)
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(28),
+                          child: Column(
+                            children: [
+                              const Icon(Icons.event_busy_outlined, size: 42),
+                              const SizedBox(height: 12),
+                              Text(
+                                _selectedRange == 0
+                                    ? 'No submitted or assigned tasks in the last 7 days.'
+                                    : 'No active assigned tasks.',
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _selectedRange == 0
+                                    ? 'Recent submissions and assignments will appear here automatically.'
+                                    : 'New assignments and their deadlines will appear here.',
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    for (final date in displayDays)
+                      if (byDate[_dateKey(date)]?.isNotEmpty == true) ...[
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 12, 4, 10),
+                          child: Text(
+                            _prettyDate(date),
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        for (var i = 0; i < byDate[_dateKey(date)]!.length; i++)
+                          _DrainTaskCard(
+                            data: byDate[_dateKey(date)]![i].data(),
+                            number: i + 1,
+                            taskId: byDate[_dateKey(date)]![i].id,
                             currentUserUid: widget.user.uid,
                             showCredits: true,
-                            isOverdue: true,
+                            evidenceStatus:
+                                _workUpdatesByTask[byDate[_dateKey(date)]![i]
+                                        .id]?['review_status']
+                                    as String?,
+                            isOverdue:
+                                _selectedRange == 1 &&
+                                date.isBefore(_todayOnly()),
+                            showDeadline: _selectedRange == 1,
                             onTap: () => Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (_) => TaskDetailsPage(
-                                  taskId: overdueTask.id,
+                                  taskId: byDate[_dateKey(date)]![i].id,
                                   currentUserUid: widget.user.uid,
                                 ),
                               ),
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                      ],
                   ],
-                ],
+                ),
               );
             },
           ),
@@ -649,7 +732,7 @@ class _TaskRangeSelector extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onSelected;
 
-  static const _labels = ['Past 7 days', 'Today', 'Next 7 days'];
+  static const _labels = ['Last week', 'Active tasks'];
 
   @override
   Widget build(BuildContext context) => Container(

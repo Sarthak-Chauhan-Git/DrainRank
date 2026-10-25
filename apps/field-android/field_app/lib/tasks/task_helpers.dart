@@ -26,11 +26,6 @@ bool isTodayOrOverdueTaskDate(dynamic dateKey) {
   return day != null && !day.isAfter(_todayOnly());
 }
 
-/// Explicit task edit boundaries written by the administrator.
-/// A task without these boundaries is read-only for server-enforced uploads.
-bool hasEditWindow(Map<String, dynamic> task) =>
-    task['workWindowStart'] is String && task['workWindowEnd'] is String;
-
 /// One shared Supabase task can be assigned to multiple crew members.
 /// Each crew member's photo submission is stored separately in `workUpdates`.
 /// Applies idempotent, admin-authorized daily overdue deductions from each task's

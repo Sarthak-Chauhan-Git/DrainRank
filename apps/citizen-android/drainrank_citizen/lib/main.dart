@@ -606,6 +606,8 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
 
   bool _isCheckingUrgency = false;
   int _urgencyLookupGeneration = 0;
+  List<NearbyUrgencyFacility> _nearbyFacilities = [];
+  String? _urgencyLookupError;
 
   bool _isLoadingGps = false;
   bool _isSubmitting = false;
@@ -700,6 +702,8 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
     setState(() {
       _isCheckingUrgency = true;
       _isUrgentFlagged = false;
+      _nearbyFacilities = [];
+      _urgencyLookupError = null;
       _selectedConsequence = UrgencyConsequence.standardResidential;
     });
 
@@ -724,6 +728,7 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
 
       if (nearbyPlaces.isEmpty) {
         setState(() {
+          _nearbyFacilities = nearbyPlaces;
           _isUrgentFlagged = false;
           _selectedConsequence = UrgencyConsequence.standardResidential;
         });
@@ -731,6 +736,7 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       }
 
       setState(() {
+        _nearbyFacilities = nearbyPlaces;
         _isUrgentFlagged = true;
         _selectedConsequence = UrgencyConsequence.criticalHospitalSchool;
       });
@@ -741,6 +747,8 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       if (!mounted || lookupGeneration != _urgencyLookupGeneration) return;
 
       setState(() {
+        _nearbyFacilities = [];
+        _urgencyLookupError = e.toString();
         _isUrgentFlagged = false;
         _selectedConsequence = UrgencyConsequence.standardResidential;
       });
@@ -751,6 +759,157 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         });
       }
     }
+  }
+
+  Widget _buildNearbyFacilitiesMap() {
+    final latitude = _latitude;
+    final longitude = _longitude;
+    if (latitude == null || longitude == null) return const SizedBox.shrink();
+
+    final nearest = _nearbyFacilities.isEmpty ? null : _nearbyFacilities.first;
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.map_outlined, color: Color(0xFF0F766E)),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Nearby facilities',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const Text(
+                  '500 m zone',
+                  style: TextStyle(
+                    color: Color(0xFF0F766E),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            if (_isCheckingUrgency)
+              const Text(
+                'Searching hospitals, schools, and emergency services…',
+              )
+            else if (_urgencyLookupError != null)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Facility search failed: $_urgencyLookupError',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Retry facility search',
+                    onPressed: _verifyHighUrgencyLocation,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              )
+            else
+              Text(
+                nearest == null
+                    ? 'No matching facilities found within 500 m.'
+                    : '${_nearbyFacilities.length} matching facility/facilities; '
+                          '${nearest.name} is nearest '
+                          '(${nearest.distanceMeters.toStringAsFixed(0)} m).',
+              ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 190,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: FlutterMap(
+                  options: MapOptions(
+                    initialCenter: LatLng(latitude, longitude),
+                    initialZoom: 14.5,
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'in.drainrank.drainrank_citizen',
+                    ),
+                    CircleLayer(
+                      circles: [
+                        CircleMarker(
+                          point: LatLng(latitude, longitude),
+                          radius: HighUrgencyPlacesService.defaultRadiusMeters,
+                          useRadiusInMeter: true,
+                          color: const Color(0xFF0F766E).withValues(alpha: .12),
+                          borderColor: const Color(0xFF0F766E),
+                          borderStrokeWidth: 2,
+                        ),
+                      ],
+                    ),
+                    MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: LatLng(latitude, longitude),
+                          width: 36,
+                          height: 36,
+                          child: const Icon(
+                            Icons.location_on,
+                            color: Color(0xFFB91C1C),
+                            size: 34,
+                          ),
+                        ),
+                        for (final place in _nearbyFacilities)
+                          Marker(
+                            point: LatLng(place.latitude, place.longitude),
+                            width: 32,
+                            height: 32,
+                            child: Tooltip(
+                              message:
+                                  '${place.name} · '
+                                  '${place.distanceMeters.toStringAsFixed(0)} m',
+                              child: const Icon(
+                                Icons.place,
+                                color: Color(0xFF7C3AED),
+                                size: 26,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'The circle shows the 500 m search radius. '
+              'Facility pins are based on Geoapify Places results.',
+              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+            ),
+            for (final place in _nearbyFacilities.take(5))
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(
+                  Icons.place_outlined,
+                  color: Color(0xFF7C3AED),
+                ),
+                title: Text(place.name),
+                subtitle: Text(place.type),
+                trailing: Text('${place.distanceMeters.toStringAsFixed(0)} m'),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _submitCitizenReport() async {
@@ -1253,61 +1412,6 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         ),
         const SizedBox(height: 12),
 
-        // MINI OPENSTREETMAP PREVIEW
-        if (_latitude != null && _longitude != null)
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: SizedBox(
-                height: 145,
-                child: FlutterMap(
-                  options: MapOptions(
-                    initialCenter: LatLng(_latitude!, _longitude!),
-                    initialZoom: 17.0,
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate:
-                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'in.drainrank.drainrank_citizen',
-                    ),
-                    CircleLayer(
-                      circles: [
-                        CircleMarker(
-                          point: LatLng(_latitude!, _longitude!),
-                          radius: AppConstants.duplicateRadiusMeters,
-                          useRadiusInMeter: true,
-                          color: Colors.blue.withValues(alpha: 0.22),
-                          borderColor: Colors.blue.shade800,
-                          borderStrokeWidth: 2,
-                        ),
-                      ],
-                    ),
-                    MarkerLayer(
-                      markers: [
-                        Marker(
-                          point: LatLng(_latitude!, _longitude!),
-                          width: 40,
-                          height: 40,
-                          child: const Icon(
-                            Icons.location_on,
-                            color: Colors.red,
-                            size: 36,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        if (_latitude != null) const SizedBox(height: 12),
-
         // 2. ISSUE CLASSIFICATION (Updated to Flutter 3.32+ RadioGroup API)
         Card(
           elevation: 2,
@@ -1495,6 +1599,8 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
           ),
         ),
         const SizedBox(height: 12),
+        _buildNearbyFacilitiesMap(),
+        const SizedBox(height: 12),
 
         // 4. DESCRIPTION & SUBMIT BUTTON
         Card(
@@ -1563,13 +1669,40 @@ class TrackStatusTab extends StatefulWidget {
 class _TrackStatusTabState extends State<TrackStatusTab> {
   List<CitizenReport> _reports = [];
   Map<String, ReportWorkflowStatus> _debugStatusOverrides = {};
+  RealtimeChannel? _reportsChannel;
   bool _loading = true;
   String? _loadError;
 
   @override
   void initState() {
     super.initState();
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      _reportsChannel = Supabase.instance.client
+          .channel('citizen-reports-${user.id}')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'citizen_reports',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'reporter_id',
+              value: user.id,
+            ),
+            callback: (_) => unawaited(_loadReports()),
+          )
+          .subscribe();
+    }
     _loadReports();
+  }
+
+  @override
+  void dispose() {
+    final channel = _reportsChannel;
+    if (channel != null) {
+      unawaited(Supabase.instance.client.removeChannel(channel));
+    }
+    super.dispose();
   }
 
   Future<void> _loadReports() async {
@@ -1665,10 +1798,11 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
     final workflowStatus = switch (rawStatus) {
       'under_verification' => ReportWorkflowStatus.underVerification,
       'work_assigned' || 'assigned' => ReportWorkflowStatus.workAssigned,
-      'cleaning_completed' ||
-      'resolved' => ReportWorkflowStatus.cleaningCompleted,
+      'cleaning_completed' => ReportWorkflowStatus.cleaningCompleted,
       'under_monitoring' ||
       'monitoring' => ReportWorkflowStatus.underMonitoring,
+      'resolved' => ReportWorkflowStatus.resolved,
+      'duplicate' => ReportWorkflowStatus.duplicate,
       'withdrawn' => ReportWorkflowStatus.withdrawn,
       _ => ReportWorkflowStatus.complaintReceived,
     };
@@ -1749,15 +1883,40 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
         'withdraw_citizen_report',
         params: {'p_report_id': report.reportId},
       );
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        try {
+          await DrainRankEngine.cacheReports(
+            _reports
+                .map(
+                  (cachedReport) => cachedReport.reportId == report.reportId
+                      ? cachedReport.copyWith(
+                          status: ReportWorkflowStatus.withdrawn,
+                        )
+                      : cachedReport,
+                )
+                .toList(),
+            userId: userId,
+          );
+        } catch (cacheError) {
+          debugPrint('Could not cache withdrawn report status: $cacheError');
+        }
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Report withdrawn.')));
       await _loadReports();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not withdraw report: $error')),
-      );
+      final errorMessage = error.toString();
+      final message = errorMessage.contains('42501')
+          ? 'Could not withdraw report: Supabase denied access. Apply migration '
+                '202610250001_owner_authorized_report_withdrawal.sql. If it is '
+                'already applied, confirm this account owns the report and '
+                'that work has not been assigned.'
+          : 'Could not withdraw report: $errorMessage';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -1820,7 +1979,7 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
                 ),
               ),
               const Text(
-                'Pull down to refresh',
+                'Status updates live • Pull down to refresh',
                 style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
             ],
@@ -2003,8 +2162,11 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
                                 ),
                               ],
                               const SizedBox(height: 8),
-                              if (displayedStatus ==
-                                  ReportWorkflowStatus.withdrawn)
+                              if ({
+                                ReportWorkflowStatus.withdrawn,
+                                ReportWorkflowStatus.duplicate,
+                                ReportWorkflowStatus.resolved,
+                              }.contains(displayedStatus))
                                 ListTile(
                                   dense: true,
                                   contentPadding: EdgeInsets.zero,
@@ -2012,17 +2174,19 @@ class _TrackStatusTabState extends State<TrackStatusTab> {
                                     Icons.cancel_outlined,
                                     color: Color(0xFF64748B),
                                   ),
-                                  title: const Text('Report withdrawn'),
-                                  subtitle: const Text(
-                                    'Withdrawn before work was assigned.',
-                                  ),
+                                  title: Text(displayedStatus.title),
+                                  subtitle: Text(displayedStatus.subtitle),
                                 )
                               else
                                 ...ReportWorkflowStatus.values
                                     .where(
                                       (stage) =>
                                           stage !=
-                                          ReportWorkflowStatus.withdrawn,
+                                              ReportWorkflowStatus.withdrawn &&
+                                          stage !=
+                                              ReportWorkflowStatus.duplicate &&
+                                          stage !=
+                                              ReportWorkflowStatus.resolved,
                                     )
                                     .map((stage) {
                                       final isDone =

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  citizenCleaningTaskId,
+  fieldTaskIdForDrain,
   groupReportsByFirstAnchor,
   priorityWithReportVolume,
+  shouldReopenCitizenReportGroup,
 } from "./reportGrouping";
 
 describe("citizen report grouping", () => {
@@ -43,5 +46,37 @@ describe("citizen report grouping", () => {
 
   it("caps area priority at 100", () => {
     expect(priorityWithReportVolume([98, 99])).toBe(100);
+  });
+
+  it("reopens a completed cleaning recommendation for a new citizen report", () => {
+    expect(
+      shouldReopenCitizenReportGroup(true, "Cleaning Recommended"),
+    ).toBe(true);
+  });
+
+  it("does not reopen a group without a new report or during active work", () => {
+    expect(
+      shouldReopenCitizenReportGroup(false, "Cleaning Recommended"),
+    ).toBe(false);
+    expect(shouldReopenCitizenReportGroup(true, "Assigned")).toBe(false);
+  });
+
+  it("gives citizen cleaning work a task ID distinct from its inspection", () => {
+    expect(citizenCleaningTaskId("CRQ-report-1")).toBe("CLN-CRQ-report-1");
+    expect(citizenCleaningTaskId("CRQ-report-1")).not.toBe("CRQ-report-1");
+    expect(
+      fieldTaskIdForDrain({
+        id: "CRQ-report-1",
+        citizenReportGroup: true,
+        workStatus: "Cleaning assigned · evidence pending",
+      }),
+    ).toBe("CLN-CRQ-report-1");
+    expect(
+      fieldTaskIdForDrain({
+        id: "CRQ-report-1",
+        citizenReportGroup: true,
+        fieldTaskId: "CLN-CRQ-report-1",
+      }),
+    ).toBe("CLN-CRQ-report-1");
   });
 });

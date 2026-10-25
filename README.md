@@ -31,10 +31,10 @@ The intended operational lifecycle is:
 5. A field worker views assigned Supabase tasks, captures one live-camera
    work photograph, attaches current GPS and capture time, and submits a
    description.
-6. An authorized field-app administrator reviews submissions and awards
-   credits. The web dashboard also has an evidence-review workflow, but it is
-   not yet connected to the field app's Supabase work-evidence records. The AI
-   assistant is advisory and never approves evidence.
+6. The field app stores cleaning results and geo-tagged photo evidence in
+   Supabase. Dashboard staff review submissions in Evidence Review before the
+   assigned task is completed. The AI assistant is advisory and never approves
+   evidence.
 7. The system retains activity, credit, complaint, and outcome history for
    follow-up and post-rain monitoring.
 
@@ -325,10 +325,9 @@ Prioritize these before calling the system production-ready:
 1. **Smoke-test the shared backend.** Confirm deployed tables and RLS, then
    test    report submission/withdrawal, status updates, task assignment, crew
    provisioning, evidence submission, and credit approval.
-2. **Connect field evidence review to dashboard operations.** Decide whether
-   the web Evidence Review page or the field-app administrator screen owns
-   approval, then synchronize evidence and reviewer decisions through
-   Supabase.
+2. **Smoke-test field evidence review.** Apply the field evidence migration,
+   submit a cleaning result from an assigned task, and confirm dashboard
+   acceptance and rework decisions synchronize to the field app.
 3. **Align schemas and status transitions.** Map citizen workflow statuses,
    dashboard `DrainStatus`/report statuses, field task states, evidence
    decisions, and outcome history with explicit transition rules.
@@ -450,13 +449,13 @@ flutter test
 flutter run `
   --dart-define=SUPABASE_URL=https://your-project.supabase.co `
   --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key `
-  --dart-define=GEOAPIFY_API_KEY=your-geoapify-key
+  --dart-define-from-file=.env.local.json
 ```
 
 Enable Supabase Email authentication. The app displays a configuration message
 when the URL/key are absent. Geoapify-based nearby
-facility discovery additionally needs
-`--dart-define=GEOAPIFY_API_KEY=...`.
+facility discovery reads `GEOAPIFY_API_KEY` from the app's local,
+git-ignored `.env.local.json`.
 
 ### Field Flutter app
 
@@ -469,7 +468,7 @@ flutter test
 flutter run `
   --dart-define=SUPABASE_URL=https://your-project.supabase.co `
   --dart-define=SUPABASE_PUBLISHABLE_KEY=your-publishable-key `
-  --dart-define=GEOAPIFY_API_KEY=your-geoapify-key
+  --dart-define-from-file=.env.local.json
 ```
 
 For the production/shared Supabase workflow, review and apply all SQL

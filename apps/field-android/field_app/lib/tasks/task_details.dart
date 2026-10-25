@@ -29,6 +29,7 @@ class _PendingWorkPhoto {
 class _TaskDetailsPageState extends State<TaskDetailsPage> {
   final TextEditingController _descriptionController = TextEditingController();
   String? _inspectionOutcome;
+  String? _cleaningOutcome;
   XFile? _image;
   Uint8List? _imageBytes;
   Position? _photoPosition;
@@ -181,25 +182,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       showAppMessage(context, 'Select the inspection result before saving.');
       return;
     }
-    final taskDay = _parseTaskDate(task['dateKey']);
-    final today = _todayOnly();
-    if (taskDay == null || taskDay.isAfter(today)) {
-      showAppMessage(context, 'Future tasks cannot be updated yet.');
-      return;
-    }
-    final overdueSubmission = taskDay.isBefore(today);
-    if (overdueSubmission && _editingUpdateId != null) {
-      showAppMessage(
-        context,
-        'Past submissions are read-only. You may submit new evidence for an overdue task if you have not submitted work before.',
-      );
-      return;
-    }
-    if (!hasEditWindow(task)) {
-      showAppMessage(
-        context,
-        'Ask admin to set workWindowStart and workWindowEnd on this task.',
-      );
+    if (!isInspectionTask && _cleaningOutcome == null) {
+      showAppMessage(context, 'Select the cleaning result before saving.');
       return;
     }
     final description = _descriptionController.text.trim();
@@ -322,6 +306,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
               'p_inspection_outcome': isInspectionTask
                   ? _inspectionOutcome
                   : null,
+              'p_cleaning_outcome': isInspectionTask ? null : _cleaningOutcome,
             },
           )
           .timeout(const Duration(seconds: 45));
@@ -333,6 +318,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
         _photoPosition = null;
         _capturedAt = null;
         _photoAddress = null;
+        _cleaningOutcome = null;
         _editingUpdateId = null;
         _nextPhotoSlot = 1;
       });
@@ -360,7 +346,16 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       }
       debugPrint('Unable to save photos at stage: $_saveStage\n$e\n$trace');
       if (mounted) {
-        showAppMessage(context, 'Save failed at $_saveStage: $e');
+        final errorMessage = e.toString();
+        final guidance = errorMessage.contains(
+          'Future tasks cannot be updated yet',
+        )
+            ? ' Apply backend/supabase/migrations/202610250002_allow_early_field_work_evidence.sql in the Supabase SQL Editor, then retry.'
+            : '';
+        showAppMessage(
+          context,
+          'Save failed at $_saveStage: $errorMessage$guidance',
+        );
       }
     } finally {
       if (mounted)
@@ -376,11 +371,13 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       _pendingPhotos.clear();
       _editingUpdateId = doc['id'] as String;
       _descriptionController.text = (doc['description'] ?? '').toString();
+      _cleaningOutcome = doc['cleaning_outcome'] as String?;
       _image = null;
       _imageBytes = null;
       _photoPosition = null;
       _capturedAt = null;
       _photoAddress = null;
+      _cleaningOutcome = null;
     });
   }
 
@@ -521,6 +518,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                   final saved = docs.isEmpty ? null : docs.first;
                   final savedData = saved;
                   final savedPath = savedData?['photoPath'];
+                  final reviewStatus = savedData?['review_status'] as String?;
                   if (isInspectionTask && status == 'Completed') {
                     final outcome = task['inspection_outcome'];
                     final message = outcome == 'cleaning_required'
@@ -533,11 +531,13 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                       child: Text(message),
                     );
                   }
-                  final taskIsToday = isScheduledToday(task['dateKey']);
                   final taskIsOverdue = isOverdueTaskDate(task['dateKey']);
-                  final canSubmitNew =
-                      saved == null && (taskIsToday || taskIsOverdue);
-                  final canRetake = saved != null && taskIsToday;
+                  final canSubmitNew = saved == null;
+                  final canRetake =
+                      saved != null &&
+                      reviewStatus != 'accepted' &&
+                      !(isInspectionTask && status == 'Completed') &&
+                      (!taskIsOverdue || reviewStatus == 'rework_requested');
                   final staged = _pendingPhotos.isNotEmpty
                       ? _pendingPhotos.first
                       : null;
@@ -566,6 +566,20 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                               ),
                             ],
                           ),
+                          if (savedData != null &&
+                              reviewStatus != null &&
+                              reviewStatus != 'pending') ...[
+                            const SizedBox(height: 8),
+                            Chip(
+                              label: Text(switch (reviewStatus) {
+                                'accepted' => 'Evidence accepted',
+                                'rework_requested' => 'Rework requested',
+                                'location_mismatch' =>
+                                  'Location clarification requested',
+                                _ => 'Evidence pending review',
+                              }),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           if (staged != null)
                             ClipRRect(
@@ -708,7 +722,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                               onPressed: _busy
                                   ? null
                                   : () async {
-                                      if (saved != null && taskIsToday) {
+                                      if (saved != null) {
                                         _editUpdate(saved);
                                       } else {
                                         _newUpdate(1);
@@ -724,7 +738,7 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                                     ? 'Retake photo'
                                     : taskIsOverdue
                                     ? 'Capture overdue work photo'
-                                    : 'Open live camera',
+                                    : 'Capture work photo',
                               ),
                             ),
                           if (taskIsOverdue && saved == null)
@@ -736,11 +750,11 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                                     ?.copyWith(color: const Color(0xFFD97706)),
                               ),
                             )
-                          else if (!taskIsToday && saved != null)
+                          else if (taskIsOverdue && saved != null)
                             const Padding(
                               padding: EdgeInsets.only(top: 6),
                               child: Text(
-                                'Past task: submitted photo and description are view-only.',
+                                'Past task: submitted photo and description are view-only unless rework is requested.',
                               ),
                             ),
                         ],
@@ -866,20 +880,29 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                   if (!savedUpdatesSnapshot.hasData) {
                     return const SizedBox.shrink();
                   }
-                  final isTodayTask = isScheduledToday(task['dateKey']);
                   final isOverdueTask = isOverdueTaskDate(task['dateKey']);
-                  final hasPriorSubmission = savedUpdatesSnapshot.data!.any(
-                    (row) =>
-                        row['taskId'] == widget.taskId &&
-                        row['submittedByUid'] == widget.currentUserUid,
-                  );
-                  final allowOverdueSubmission =
-                      isOverdueTask && !hasPriorSubmission;
-                  if (!isTodayTask && !allowOverdueSubmission) {
+                  final priorSubmissions = savedUpdatesSnapshot.data!
+                      .where(
+                        (row) =>
+                            row['taskId'] == widget.taskId &&
+                            row['submittedByUid'] == widget.currentUserUid,
+                      )
+                      .toList();
+                  final priorSubmission = priorSubmissions.isEmpty
+                      ? null
+                      : priorSubmissions.first;
+                  final priorReviewStatus =
+                      priorSubmission?['review_status'] as String?;
+                  final canUpdateEvidence =
+                      !(isInspectionTask && status == 'Completed') &&
+                      (priorSubmission == null ||
+                          priorReviewStatus == 'rework_requested' ||
+                          (!isOverdueTask && priorReviewStatus != 'accepted'));
+                  if (!canUpdateEvidence) {
                     return const Padding(
                       padding: EdgeInsets.symmetric(vertical: 14),
                       child: Text(
-                        'This past task is view-only. Overdue tasks can accept new evidence only if you have not submitted work for them before.',
+                        'This evidence is read-only unless the reviewer requests rework.',
                       ),
                     );
                   }
@@ -910,6 +933,35 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                           ],
                           onChanged: (value) =>
                               setState(() => _inspectionOutcome = value),
+                        ),
+                        const SizedBox(height: 12),
+                      ] else ...[
+                        Text(
+                          'Cleaning result',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          initialValue: _cleaningOutcome,
+                          decoration: const InputDecoration(
+                            hintText: 'Select cleaning result',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'cleaned',
+                              child: Text('Cleaning completed'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'partially_cleaned',
+                              child: Text('Cleaning partially completed'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'unable_to_complete',
+                              child: Text('Unable to complete cleaning'),
+                            ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _cleaningOutcome = value),
                         ),
                         const SizedBox(height: 12),
                       ],

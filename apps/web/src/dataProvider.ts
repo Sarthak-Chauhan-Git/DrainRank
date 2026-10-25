@@ -6,8 +6,10 @@ import type {
 } from "./App";
 import { createEmptyData } from "./emptyState";
 import {
+  fieldTaskIdForDrain,
   groupReportsByFirstAnchor,
   priorityWithReportVolume,
+  shouldReopenCitizenReportGroup,
 } from "./reportGrouping";
 import { supabase } from "./supabase";
 import { signDashboardImage } from "./supabaseStorage";
@@ -132,12 +134,21 @@ export async function loadDashboardState(): Promise<AppState> {
       .map((report) => report.report_id),
   );
   const drains = (state.drains as DrainRecord[]).map((drain) => {
-    const task = tasksById.get(drain.id);
-    if (!task) return drain;
+    const fieldTaskId = fieldTaskIdForDrain(drain);
+    const task = tasksById.get(fieldTaskId);
+    if (!task) {
+      return drain.citizenReportGroup && fieldTaskId !== drain.id
+        ? { ...drain, fieldTaskId }
+        : drain;
+    }
     return {
       ...drain,
+      fieldTaskId,
       fieldTaskStatus: task.status,
-      inspectionOutcome: task.inspection_outcome,
+      inspectionOutcome:
+        drain.citizenReportGroup && fieldTaskId !== drain.id
+          ? drain.inspectionOutcome
+          : task.inspection_outcome,
       workStatus:
         drain.workStatus?.startsWith("Inspection assigned") ||
         drain.workStatus?.startsWith("Cleaning assigned")
@@ -480,21 +491,28 @@ function buildCitizenReportGroups(
     const id = `CRQ-${anchor.id}`;
     const sourceReportIds = group.members.map((report) => report.id);
     const previous = existingGroups.get(id);
-    const task = tasksById.get(id);
     const newReportArrived = Boolean(
       previous &&
         sourceReportIds.some(
           (reportId) => !previous.sourceReportIds?.includes(reportId),
         ),
     );
-    const shouldReopen =
-      newReportArrived &&
-      (previous?.status === "Monitoring" ||
-        previous?.status === "Reviewed" ||
-        previous?.status === "Resolved");
+    const shouldReopen = shouldReopenCitizenReportGroup(
+      newReportArrived,
+      previous?.status,
+    );
+    const fieldTaskId = shouldReopen
+      ? id
+      : previous
+        ? fieldTaskIdForDrain(previous)
+        : id;
+    const task = tasksById.get(fieldTaskId);
+    const inspectionTask = tasksById.get(id);
     const inspectionOutcome = shouldReopen
       ? null
-      : (task?.inspection_outcome ?? previous?.inspectionOutcome ?? null);
+      : (inspectionTask?.inspection_outcome ??
+        previous?.inspectionOutcome ??
+        null);
     const priority = priorityWithReportVolume(
       group.members.map((report) => report.priority),
     );
@@ -540,6 +558,7 @@ function buildCitizenReportGroups(
       ...previous,
       id,
       citizenReportGroup: true,
+      fieldTaskId,
       sourceReportIds,
       anchorLatitude: anchor.latitude,
       anchorLongitude: anchor.longitude,
@@ -763,6 +782,7 @@ async function deleteStoredPhotos(): Promise<string | null> {
   for (const bucketName of [
     "citizen-photos",
     "work-photos",
+    "field-direct-reports",
     "dashboard-evidence",
   ]) {
     const bucket = supabase.storage.from(bucketName);
@@ -867,8 +887,9 @@ function mapDashboardTasks(state: AppState) {
       ? `Inspect ${drain.id}`
       : `Maintain ${drain.id}`;
 
+    const fieldTaskId = fieldTaskIdForDrain(drain);
     return {
-      id: drain.id,
+      id: fieldTaskId,
       title,
       date_key: dateKey,
       location: drain.location,

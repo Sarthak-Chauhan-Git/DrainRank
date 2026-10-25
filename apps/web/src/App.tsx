@@ -68,6 +68,7 @@ import {
 import { uploadDashboardImage } from "./supabaseStorage";
 import { DashboardSessionContext } from "./dashboardSession";
 import { supabase } from "./supabase";
+import { citizenCleaningTaskId } from "./reportGrouping";
 import GlobalDrainAssistant from "./GlobalDrainAssistant";
 import MonitoringIntelligencePage from "./MonitoringIntelligencePage";
 
@@ -113,6 +114,7 @@ function mergeRefreshedWorkflow(
             priority,
             workStatus,
             fieldTaskStatus,
+            fieldTaskId,
             inspectionOutcome,
             sourceReportIds,
           }) => ({
@@ -121,6 +123,7 @@ function mergeRefreshedWorkflow(
             priority,
             workStatus,
             fieldTaskStatus,
+            fieldTaskId,
             inspectionOutcome,
             sourceReportIds,
           }),
@@ -148,6 +151,7 @@ export interface DrainRecord {
   sourceReportIds?: string[];
   anchorLatitude?: number;
   anchorLongitude?: number;
+  fieldTaskId?: string;
   fieldTaskStatus?: string;
   inspectionOutcome?: "cleaning_required" | "no_cleaning_required" | null;
   evidenceId?: string;
@@ -664,7 +668,8 @@ function DrainRankApp() {
         (payload) => {
           const currentGroup = appStateRef.current.drains.find(
             (drain) =>
-              drain.citizenReportGroup && drain.id === payload.new.id,
+              drain.citizenReportGroup &&
+              (drain.fieldTaskId ?? drain.id) === payload.new.id,
           );
           if (
             currentGroup &&
@@ -717,11 +722,8 @@ function DrainRankApp() {
   };
 
   const handleOperationalDataReset = async () => {
-    const currentState = appStateRef.current;
     const resetState: AppState = {
       ...createEmptyData(),
-      workers: currentState.workers,
-      crews: currentState.crews,
     };
     setDataReady(false);
     let result: Awaited<ReturnType<typeof resetOperationalData>>;
@@ -942,6 +944,9 @@ function DrainRankApp() {
     updateDrainById(drainId, (drain) => ({
       ...drain,
       status: "Pending Review",
+      fieldTaskId: drain.citizenReportGroup
+        ? citizenCleaningTaskId(drain.id)
+        : drain.fieldTaskId,
       assignedCrew: crew,
       assignedCrews: crew
         .split(",")
@@ -973,6 +978,7 @@ function DrainRankApp() {
     updateDrainById(drainId, (drain) => ({
       ...drain,
       fieldTaskStatus: "Pending",
+      fieldTaskId: drain.citizenReportGroup ? drain.id : drain.fieldTaskId,
       assignedCrew: crew,
       assignedCrews: crew
         .split(",")
@@ -3951,10 +3957,35 @@ function FieldEvidenceQueue() {
       if (reviewError) throw reviewError;
       setRecords(await loadFieldEvidence());
     } catch (reviewError) {
+      const details =
+        reviewError !== null && typeof reviewError === "object"
+          ? (reviewError as {
+              message?: unknown;
+              code?: unknown;
+              details?: unknown;
+              hint?: unknown;
+            })
+          : null;
+      const errorMessage =
+        details && typeof details.message === "string"
+          ? details.message
+          : reviewError instanceof Error
+            ? reviewError.message
+            : String(reviewError);
+      const errorCode =
+        details && typeof details.code === "string"
+          ? ` (${details.code})`
+          : "";
+      const errorDetails =
+        details && typeof details.details === "string"
+          ? ` Details: ${details.details}`
+          : "";
+      const errorHint =
+        details && typeof details.hint === "string"
+          ? ` Hint: ${details.hint}`
+          : "";
       setError(
-        `Could not review field evidence: ${
-          reviewError instanceof Error ? reviewError.message : String(reviewError)
-        }`,
+        `Could not review field evidence: ${errorMessage}${errorCode}${errorDetails}${errorHint}`,
       );
     } finally {
       setReviewingId(null);
@@ -6488,7 +6519,7 @@ function AdministrationPage({
 
   const confirmDataReset = async () => {
     const confirmation = window.prompt(
-      "This permanently deletes all app data except accounts and crew rosters. Type RESET DATA to continue.",
+      "This permanently deletes all operational data, photos, and non-admin login accounts. Admin accounts are kept; configuration resets to defaults. Type RESET DATA to continue.",
     );
     if (confirmation !== "RESET DATA") return;
 
@@ -6712,19 +6743,19 @@ function AdministrationPage({
             <div>
               <h3>Reset operational data</h3>
               <p className="panel-note">
-                Clear all app data, reports, operational logs, work history,
-                settings, and Supabase photos for a fresh test.
+                Clear reports, operational logs, work history, non-admin login
+                accounts, settings, and Supabase photos for a fresh test.
               </p>
             </div>
             <ShieldAlert size={20} color="#b42318" />
           </div>
           <div className="settings-logout">
             <div>
-              <strong>Admin, citizen, and crew accounts are kept</strong>
+              <strong>All accounts with the admin role are kept</strong>
               <small>
-                Supabase accounts and crew rosters remain. App settings return
-                to defaults. Stored dashboard evidence images are removed with
-                the rest of the Supabase photos.
+                Admin accounts are kept. Crew and citizen accounts and rosters
+                are deleted. App settings return to defaults, and stored
+                photos are removed from the app's Supabase buckets.
               </small>
             </div>
             <button

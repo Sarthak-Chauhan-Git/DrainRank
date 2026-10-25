@@ -154,9 +154,8 @@ class _TaskMessage extends StatelessWidget {
             Text(
               title,
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 7),
             Text(message, textAlign: TextAlign.center),
@@ -177,6 +176,8 @@ class _DrainTaskCard extends StatelessWidget {
     this.currentUserUid,
     this.showCredits = false,
     this.isOverdue = false,
+    this.showDeadline = false,
+    this.evidenceStatus,
   });
 
   final Map<String, dynamic> data;
@@ -186,6 +187,8 @@ class _DrainTaskCard extends StatelessWidget {
   final String? currentUserUid;
   final bool showCredits;
   final bool isOverdue;
+  final bool showDeadline;
+  final String? evidenceStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -195,6 +198,10 @@ class _DrainTaskCard extends StatelessWidget {
     final time = start.isEmpty
         ? 'Time not specified'
         : (end.isEmpty ? start : '$start – $end');
+    final deadline = fieldDateTime(data['workWindowEnd']);
+    final deadlineText = deadline == null
+        ? 'Due ${_taskDateLabel(data['dateKey'])}${end.isEmpty ? '' : ' · $end'}'
+        : 'Due ${_prettyDate(deadline)} · ${TimeOfDay.fromDateTime(deadline).format(context)}';
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
@@ -212,6 +219,33 @@ class _DrainTaskCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(time, style: Theme.of(context).textTheme.bodySmall),
+            if (evidenceStatus != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                switch (evidenceStatus) {
+                  'accepted' => 'Evidence accepted',
+                  'pending' => 'Evidence pending review',
+                  'rework_requested' => 'Rework requested',
+                  'location_mismatch' => 'Location clarification requested',
+                  _ => 'Evidence submitted',
+                },
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: evidenceStatus == 'accepted'
+                      ? const Color(0xFF059669)
+                      : const Color(0xFF475569),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+            if (showDeadline)
+              Padding(
+                padding: const EdgeInsets.only(top: 3),
+                child: Text(
+                  deadlineText,
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
             if (isOverdue)
               Padding(
                 padding: const EdgeInsets.only(top: 3),
@@ -227,9 +261,8 @@ class _DrainTaskCard extends StatelessWidget {
                     ),
                     Text(
                       'Warning: a daily credit deduction may apply until work is submitted.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFFB91C1C),
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: const Color(0xFFB91C1C)),
                     ),
                   ],
                 ),
