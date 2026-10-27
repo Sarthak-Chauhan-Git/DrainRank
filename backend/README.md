@@ -46,6 +46,9 @@ Apply `202610250007_dual_task_credit_awards.sql` when the existing
 `credit_awards.task_id` foreign key points only to the legacy `public.tasks`
 table. It allows credit awards to reference either legacy tasks or
 `field_tasks`, while removing awards if their task is deleted from both.
+If an existing citizen Auth account has no matching `profiles` row, apply
+`202610270001_repair_missing_citizen_profiles.sql` to restore its citizen
+profile so report submissions can satisfy the `reporter_id` foreign key.
 Apply `202610250005_reset_direct_cleaning_reports.sql` to include direct
 cleaning reports and their credit rows in the operational reset. For a full
 test-data reset that also deletes non-admin Auth accounts and crew rosters

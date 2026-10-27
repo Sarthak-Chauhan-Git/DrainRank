@@ -44,7 +44,10 @@ report. Apply
 `../../../backend/supabase/migrations/202610240002_direct_cleaning_reports.sql` in
 Supabase SQL Editor after the earlier shared-backend migrations.
 The shared in-app camera keeps both the preview and captured photo in portrait
-orientation.
+orientation. Captured task and direct-report photos show object labels,
+confidence scores, and bounding boxes from the on-device detector. It warns
+when no bottle is identified. Android builds require Android 8.0 (API 26) or
+newer for the detector runtime.
 Assigned cleaning tasks require a result (completed, partially completed, or
 unable to complete) with the work photo and description. Submissions appear in
 the dashboard's Evidence Review queue; a reviewer can accept them or return

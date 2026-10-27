@@ -28,6 +28,9 @@ class _DirectCleaningReportPageState extends State<DirectCleaningReportPage> {
   String? _priorityError;
   Uint8List? _photoBytes;
   DateTime? _capturedAt;
+  bool? _bottleDetected;
+  ObjectDetectionResult? _detectionResult;
+  String? _bottleDetectionError;
   bool _loadingWards = true;
   bool _busy = false;
   String? _error;
@@ -107,8 +110,19 @@ class _DirectCleaningReportPageState extends State<DirectCleaningReportPage> {
       if (capturedPosition.accuracy < 0) {
         throw StateError('The device did not return a valid GPS accuracy.');
       }
+      final originalBytes = await capture.image.readAsBytes();
+      ObjectDetectionResult? detectionResult;
+      String? bottleDetectionError;
+      try {
+        detectionResult = await BottleDetector.instance.detectObjects(
+          originalBytes,
+        );
+      } catch (error) {
+        bottleDetectionError = error.toString();
+        debugPrint('Bottle detection failed: $error');
+      }
       final bytes = embedGpsExifInJpeg(
-        await capture.image.readAsBytes(),
+        originalBytes,
         capturedPosition,
         capture.capturedAt,
       );
@@ -129,6 +143,9 @@ class _DirectCleaningReportPageState extends State<DirectCleaningReportPage> {
         _priorityError = priorityError;
         _photoBytes = bytes;
         _capturedAt = capture.capturedAt;
+        _bottleDetected = detectionResult?.bottleDetected;
+        _detectionResult = detectionResult;
+        _bottleDetectionError = bottleDetectionError;
       });
     } catch (error) {
       if (mounted) setState(() => _error = 'Could not capture photo: $error');
@@ -205,6 +222,9 @@ class _DirectCleaningReportPageState extends State<DirectCleaningReportPage> {
         _priorityError = null;
         _photoBytes = null;
         _capturedAt = null;
+        _detectionResult = null;
+        _bottleDetected = null;
+        _bottleDetectionError = null;
       });
       showAppMessage(
         context,
@@ -282,13 +302,17 @@ class _DirectCleaningReportPageState extends State<DirectCleaningReportPage> {
                 const SizedBox(height: 12),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Image.memory(
-                    _photoBytes!,
+                  child: DetectedObjectImage(
+                    image: MemoryImage(_photoBytes!),
+                    result: _detectionResult,
                     height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
                   ),
                 ),
+                if (_bottleDetected != null || _bottleDetectionError != null)
+                  BottleDetectionNotice(
+                    bottleDetected: _bottleDetected,
+                    error: _bottleDetectionError,
+                  ),
               ],
             ],
           ),

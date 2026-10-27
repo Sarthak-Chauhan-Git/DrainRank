@@ -1,0 +1,17 @@
+name: ai_detector
+description: Shared bottle detection for the DrainRank mobile apps.
+publish_to: none
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  image: ^4.12.0
+  tflite_flutter: ^0.12.1
+
+flutter:
+  assets:
+    - 1.tflite
+    - labelmap.txt

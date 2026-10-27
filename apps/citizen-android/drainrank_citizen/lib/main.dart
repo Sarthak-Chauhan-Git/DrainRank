@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:ai_detector/ai_detector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:image_picker/image_picker.dart';
@@ -590,6 +591,9 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
   File? _capturedImage;
   DateTime? _capturedAt;
   ImageQualityResult? _qualityResult;
+  bool? _bottleDetected;
+  ObjectDetectionResult? _detectionResult;
+  String? _bottleDetectionError;
 
   double? _latitude;
   double? _longitude;
@@ -629,6 +633,15 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
       final captureTimestamp = DateTime.now();
       final imageFile = File(photo.path);
       final quality = await DrainRankEngine.analyzeAndHashPhoto(imageFile);
+      ObjectDetectionResult? detectionResult;
+      String? bottleDetectionError;
+      try {
+        detectionResult = await BottleDetector.instance.detectObjects(
+          await imageFile.readAsBytes(),
+        );
+      } catch (error) {
+        bottleDetectionError = error.toString();
+      }
 
       double lat;
       double lng;
@@ -661,6 +674,9 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
         _capturedImage = imageFile;
         _capturedAt = captureTimestamp;
         _qualityResult = quality;
+        _bottleDetected = detectionResult?.bottleDetected;
+        _detectionResult = detectionResult;
+        _bottleDetectionError = bottleDetectionError;
         _latitude = lat;
         _longitude = lng;
         _gpsAccuracy = acc;
@@ -1237,7 +1253,7 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                                 CircularProgressIndicator(),
                                 SizedBox(height: 12),
                                 Text(
-                                  'Locking High-Accuracy GPS & Hashing Image...',
+                                  'Checking the photo and locking high-accuracy GPS...',
                                 ),
                               ],
                             )
@@ -1281,68 +1297,17 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                     children: [
                       Stack(
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.file(
-                              _capturedImage!,
-                              height: 210,
-                              width: double.infinity,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: const BoxDecoration(
-                                color: Colors.black87,
-                                borderRadius: BorderRadius.only(
-                                  bottomLeft: Radius.circular(12),
-                                  bottomRight: Radius.circular(12),
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.gps_fixed,
-                                        size: 14,
-                                        color: Colors.greenAccent,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          'Lat ${_latitude!.toStringAsFixed(4)}, Long ${_longitude!.toStringAsFixed(4)} (±${_gpsAccuracy!.toStringAsFixed(1)}m)',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12.5,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Captured: ${DateFormat('dd MMM yyyy, hh:mm:ss a').format(_capturedAt!)}',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  Text(
-                                    'SHA-256: ${_qualityResult!.sha256Hash.substring(0, 24)}...',
-                                    style: const TextStyle(
-                                      color: Colors.amberAccent,
-                                      fontSize: 10.5,
-                                      fontFamily: 'monospace',
-                                    ),
-                                  ),
-                                ],
+                          AspectRatio(
+                            aspectRatio: _detectionResult == null
+                                ? 4 / 3
+                                : _detectionResult!.imageWidth /
+                                      _detectionResult!.imageHeight,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: DetectedObjectImage(
+                                image: FileImage(_capturedImage!),
+                                result: _detectionResult,
+                                fit: BoxFit.contain,
                               ),
                             ),
                           ),
@@ -1361,6 +1326,52 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                             ),
                           ),
                         ],
+                      ),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          borderRadius: const BorderRadius.vertical(
+                            bottom: Radius.circular(12),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.gps_fixed,
+                                  size: 16,
+                                  color: Color(0xFF047857),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Lat ${_latitude!.toStringAsFixed(4)}, Long ${_longitude!.toStringAsFixed(4)} (±${_gpsAccuracy!.toStringAsFixed(1)}m)',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Captured: ${DateFormat('dd MMM yyyy, hh:mm:ss a').format(_capturedAt!)}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                            Text(
+                              'SHA-256: ${_qualityResult!.sha256Hash.substring(0, 24)}...',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(fontFamily: 'monospace'),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 10),
                       Wrap(
@@ -1404,6 +1415,12 @@ class _ReportIssueTabState extends State<ReportIssueTab> {
                           ),
                         ],
                       ),
+                      if (_bottleDetected != null ||
+                          _bottleDetectionError != null)
+                        BottleDetectionNotice(
+                          bottleDetected: _bottleDetected,
+                          error: _bottleDetectionError,
+                        ),
                     ],
                   ),
               ],

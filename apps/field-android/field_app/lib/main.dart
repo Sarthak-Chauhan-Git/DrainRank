@@ -11,6 +11,8 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:math' as math;
 
+import 'package:ai_detector/ai_detector.dart';
+
 import 'backend/supabase_backend.dart';
 import 'services/priority_analysis.dart';
 

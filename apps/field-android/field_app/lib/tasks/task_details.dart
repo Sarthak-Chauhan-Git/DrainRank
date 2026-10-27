@@ -35,6 +35,9 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
   Position? _photoPosition;
   DateTime? _capturedAt;
   String? _photoAddress;
+  bool? _bottleDetected;
+  ObjectDetectionResult? _detectionResult;
+  String? _bottleDetectionError;
   bool _busy = false;
   String _saveStage = '';
 
@@ -132,6 +135,16 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
 
       final position = await _getLocation();
       final originalBytes = await capture.image.readAsBytes();
+      ObjectDetectionResult? detectionResult;
+      String? bottleDetectionError;
+      try {
+        detectionResult = await BottleDetector.instance.detectObjects(
+          originalBytes,
+        );
+      } catch (error) {
+        bottleDetectionError = error.toString();
+        debugPrint('Bottle detection failed: $error');
+      }
       final bytes = embedGpsExifInJpeg(
         originalBytes,
         position,
@@ -162,6 +175,9 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
         _photoPosition = position;
         _capturedAt = capture.capturedAt;
         _photoAddress = address;
+        _bottleDetected = detectionResult?.bottleDetected;
+        _detectionResult = detectionResult;
+        _bottleDetectionError = bottleDetectionError;
       });
     } catch (e) {
       if (mounted) {
@@ -318,6 +334,9 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
         _photoPosition = null;
         _capturedAt = null;
         _photoAddress = null;
+        _detectionResult = null;
+        _bottleDetected = null;
+        _bottleDetectionError = null;
         _cleaningOutcome = null;
         _editingUpdateId = null;
         _nextPhotoSlot = 1;
@@ -347,9 +366,8 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       debugPrint('Unable to save photos at stage: $_saveStage\n$e\n$trace');
       if (mounted) {
         final errorMessage = e.toString();
-        final guidance = errorMessage.contains(
-          'Future tasks cannot be updated yet',
-        )
+        final guidance =
+            errorMessage.contains('Future tasks cannot be updated yet')
             ? ' Apply backend/supabase/migrations/202610250002_allow_early_field_work_evidence.sql in the Supabase SQL Editor, then retry.'
             : '';
         showAppMessage(
@@ -377,6 +395,9 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       _photoPosition = null;
       _capturedAt = null;
       _photoAddress = null;
+      _detectionResult = null;
+      _bottleDetected = null;
+      _bottleDetectionError = null;
       _cleaningOutcome = null;
     });
   }
@@ -391,6 +412,9 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
       _photoPosition = null;
       _capturedAt = null;
       _photoAddress = null;
+      _detectionResult = null;
+      _bottleDetected = null;
+      _bottleDetectionError = null;
     });
   }
 
@@ -584,11 +608,10 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                           if (staged != null)
                             ClipRRect(
                               borderRadius: BorderRadius.circular(12),
-                              child: Image.memory(
-                                staged.bytes,
-                                width: double.infinity,
+                              child: DetectedObjectImage(
+                                image: MemoryImage(staged.bytes),
+                                result: _detectionResult,
                                 height: 220,
-                                fit: BoxFit.cover,
                               ),
                             )
                           else if (savedPath is String)
@@ -646,6 +669,13 @@ class _TaskDetailsPageState extends State<TaskDetailsPage> {
                                   Text('No work photo captured yet'),
                                 ],
                               ),
+                            ),
+                          if (_imageBytes != null &&
+                              (_bottleDetected != null ||
+                                  _bottleDetectionError != null))
+                            BottleDetectionNotice(
+                              bottleDetected: _bottleDetected,
+                              error: _bottleDetectionError,
                             ),
                           if (staged != null || savedData != null) ...[
                             const SizedBox(height: 12),

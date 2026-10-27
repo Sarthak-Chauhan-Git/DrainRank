@@ -12,6 +12,11 @@ according to the project's authentication settings. Authenticated citizens
 upload report photos to the private `citizen-photos` bucket and insert report
 records in `public.citizen_reports`.
 
+After a report photo is captured, the on-device detector identifies objects
+and overlays their labels, confidence scores, and boxes on the preview. It
+warns when no bottle is identified. Android builds require Android 8.0 (API 26)
+or newer for the detector runtime.
+
 Apply the migrations in `backend/supabase/migrations` before running the app,
 including `202610240003_citizen_report_submission_access.sql` and the later
 owner-folder upload policy in
@@ -20,7 +25,10 @@ restrict each citizen to their own reports and photos; dashboard
 administrators can review all reports. Migration
 `202610250001_owner_authorized_report_withdrawal.sql` allows an authenticated
 report owner to withdraw an eligible report without relying on a profile-role
-lookup.
+lookup. If report submission fails because the authenticated user is missing
+from `profiles`, apply
+`202610270001_repair_missing_citizen_profiles.sql` to restore profiles for
+existing citizen Auth accounts.
 
 Pass the project's URL and publishable key as Dart defines when running or
 building the app. The local, git-ignored `.env.local.json` provides the same
